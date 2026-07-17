@@ -425,6 +425,39 @@ Benefits and Perks (US Only)
   eq('does not extract "Deep" as a skill', dispositionSkills.includes('Deep'), false);
   eq('does not extract "Interest" as a skill', dispositionSkills.includes('Interest'), false);
 
+  // Regression (#1896): the reported bug. A CV alias and a JD's canonical name
+  // must not read as a gap. Before the shared skill-extract canonicalization,
+  // classify compared the two literally — "k8s" in the CV vs "Kubernetes" in
+  // the JD — and reported Kubernetes as a false gap. canonicalize() now folds
+  // both to "Kubernetes" so it resolves to the region the CV actually uses it.
+  const aliasCv = `
+# Skills
+Python, k8s, Postgres
+
+# Experience
+Built data pipelines with golang microservices.
+`;
+  const aliasResult = classifySkillGaps(['Kubernetes', 'PostgreSQL', 'Go', 'Rust'], aliasCv);
+  eq('CV "k8s" satisfies JD "Kubernetes" (named section, not a false gap)', aliasResult.existing.includes('Kubernetes'), true);
+  eq('CV "Postgres" satisfies JD "PostgreSQL" (named section)', aliasResult.existing.includes('PostgreSQL'), true);
+  eq('CV prose "golang" satisfies JD "Go" (supportedByResume)', aliasResult.supportedByResume.includes('Go'), true);
+  eq('genuinely-absent Rust is still a real gap', aliasResult.gap.includes('Rust'), true);
+
+  // Regression (#1896, answer 2): unknown/free tokens keep the prior
+  // word-boundary behavior — canonicalize passes them through unchanged, so a
+  // JD token the shared module does not know still matches (or not) exactly as
+  // before, byte-for-byte.
+  const freeTokenCv = `
+# Skills
+Python, Fabrikam-SDK
+
+# Experience
+Maintained the internal Fabrikam-SDK build.
+`;
+  const freeResult = classifySkillGaps(['Fabrikam-SDK', 'Contoso-Cloud'], freeTokenCv);
+  eq('unknown token present in CV still matches (word-boundary fallback preserved)', freeResult.existing.includes('Fabrikam-SDK'), true);
+  eq('unknown token absent from CV is still a real gap', freeResult.gap.includes('Contoso-Cloud'), true);
+
   console.log(`\njd-skill-gap self-test: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }
