@@ -195,6 +195,17 @@ const twoPassManifestChecks = [
     name: 'a checkout failure only skips when the path is absent upstream, else rethrows (#1998)',
     pattern: /catch \{ absentUpstream = true; \}\s*if \(!absentUpstream\) throw err;/,
   },
+  {
+    // `git checkout HEAD -- docs/` restores tracked content but never removes
+    // paths HEAD lacks, so files the update introduced under a directory
+    // pathspec survived the rollback as staged additions (#2015).
+    name: 'revertPaths clears additions HEAD lacks under a directory pathspec (#2015)',
+    pattern: /removeAdditionsNotInHead\(p\)/,
+  },
+  {
+    name: 'removeAdditionsNotInHead only targets additions, never modifications (#2015)',
+    pattern: /'--diff-filter=A'/,
+  },
 ];
 
 for (const check of twoPassManifestChecks) {
