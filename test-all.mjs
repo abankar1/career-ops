@@ -9505,6 +9505,25 @@ try {
     fail(`templates/states.yml lost canonical status id(s): ${missingStates.join(', ')} — BREAKING for the web status mapping`);
   }
 
+  // 55.3b The web status dropdown must offer EVERY canonical state. states.yml is
+  // the source of truth; web/src/lib/format.ts's CANONICAL_STATES is the single
+  // list the status-select dropdown + its known-check read. `Hired` (#2050)
+  // silently drifted out of the web list — a landed job couldn't be recorded and
+  // rendered as a gray "unknown" dot (#2249). Keep the two in lockstep.
+  const formatPath = join(ROOT, 'web', 'src', 'lib', 'format.ts');
+  if (existsSync(formatPath)) {
+    const stateLabels = [...statesSrc.matchAll(/^\s+label:\s*"?([A-Za-z]+)"?\s*$/gm)].map((m) => m[1]);
+    const formatSrc = readFileSync(formatPath, 'utf-8');
+    const webBlock = formatSrc.match(/CANONICAL_STATES\s*=\s*\[([\s\S]*?)\]/)?.[1] ?? '';
+    const webStates = new Set([...webBlock.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]));
+    const webMissing = stateLabels.filter((l) => !webStates.has(l));
+    if (stateLabels.length > 0 && webMissing.length === 0) {
+      pass('web CANONICAL_STATES covers every canonical state label from states.yml (#2249)');
+    } else {
+      fail(`web/src/lib/format.ts CANONICAL_STATES is missing canonical state(s): ${webMissing.join(', ')} — the web dashboard can't set or recognize them (#2249)`);
+    }
+  }
+
   // 55.4 report format blocks (modes/oferta.md → web report parser)
   const ofertaSrc = readFileSync(join(ROOT, 'modes', 'oferta.md'), 'utf-8');
   const REPORT_BLOCKS = ['Block A', 'Block B', 'Block C', 'Block D', 'Block E', 'Block F', 'Block G'];
