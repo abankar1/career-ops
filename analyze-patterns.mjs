@@ -375,6 +375,21 @@ risk_summary:
     failures.push(`hired: must count as advanced in channel yield (1/2 = 50%) → ${JSON.stringify(hiredHays)}`);
   }
 
+  // Tech-gap extraction (regression): symbol-edge stacks were silently dropped
+  // because a trailing \b never matches after "+"/"#" (C++, C#, .NET).
+  const techHits = extractTechMentions('Requires C++, C# and .NET, plus React Native and Go');
+  for (const expected of ['C++', 'C#', '.NET', 'React Native', 'Go']) {
+    if (!techHits.includes(expected)) failures.push(`tech extraction dropped "${expected}"`);
+  }
+  // No false positives from substrings ("Go" in "Google", "Java" in "JavaScripting").
+  if (extractTechMentions('Google Cloud and JavaScripting skills').length !== 0) {
+    failures.push('tech extraction false-positived on Google/JavaScripting');
+  }
+  // Case/punctuation variants collapse to one canonical bucket.
+  if (extractTechMentions('nodejs, Node.js, NODEJS').some(t => t !== 'Node.js')) {
+    failures.push('node.js case variants failed to canonicalize');
+  }
+
   if (failures.length > 0) {
     console.error(`analyze-patterns self-test failed: ${failures.join('; ')}`);
     process.exit(1);
