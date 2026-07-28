@@ -390,6 +390,16 @@ risk_summary:
     failures.push('node.js case variants failed to canonicalize');
   }
 
+  // Remote classifier (regression): the "70+" signal ends in "+", so a
+  // trailing \b silently dropped it and "70+ countries" postings fell to the
+  // weaker 'regional remote' bucket instead of 'global remote'.
+  if (classifyRemote('Fully remote — hiring in 70+ countries') !== 'global remote') {
+    failures.push('classifyRemote did not read "70+ countries" as global remote');
+  }
+  if (classifyRemote('US-only remote') !== 'geo-restricted') {
+    failures.push('classifyRemote geo-restricted precedence regressed');
+  }
+
   if (failures.length > 0) {
     console.error(`analyze-patterns self-test failed: ${failures.join('; ')}`);
     process.exit(1);
@@ -564,7 +574,11 @@ function classifyRemote(raw) {
   if (/\b(us[- ]?only|canada[- ]?only|residents only|usa only|us residents|canada residents)\b/.test(lower)) return 'geo-restricted';
   if (/\bargentina\s+remote\s+only\b/.test(lower)) return 'geo-restricted';
   if (/\b(hybrid|on-?site|office|columbus|cape town|relocat)\b/.test(lower)) return 'hybrid/onsite';
-  if (/\b(global|anywhere|worldwide|no restrict|70\+|work from anywhere)\b/.test(lower)) return 'global remote';
+  // (?<!\w)/(?!\w) not \b: the "70+" signal ends in "+", and a trailing \b
+  // never matches after a symbol edge, so "remote in 70+ countries" fell
+  // through to the weaker 'regional remote' bucket. Word alternatives behave
+  // identically under either boundary, so this only rescues the "70+" case.
+  if (/(?<!\w)(global|anywhere|worldwide|no restrict|70\+|work from anywhere)(?!\w)/.test(lower)) return 'global remote';
   if (/\b(remote|latam|americas|brazil|fully remote)\b/.test(lower)) return 'regional remote';
   return 'unknown';
 }
