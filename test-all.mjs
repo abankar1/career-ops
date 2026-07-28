@@ -9505,22 +9505,36 @@ try {
     fail(`templates/states.yml lost canonical status id(s): ${missingStates.join(', ')} — BREAKING for the web status mapping`);
   }
 
-  // 55.3b The web status dropdown must offer EVERY canonical state. states.yml is
-  // the source of truth; web/src/lib/format.ts's CANONICAL_STATES is the single
-  // list the status-select dropdown + its known-check read. `Hired` (#2050)
-  // silently drifted out of the web list — a landed job couldn't be recorded and
-  // rendered as a gray "unknown" dot (#2249). Keep the two in lockstep.
-  const formatPath = join(ROOT, 'web', 'src', 'lib', 'format.ts');
-  if (existsSync(formatPath)) {
-    const stateLabels = [...statesSrc.matchAll(/^\s+label:\s*"?([A-Za-z]+)"?\s*$/gm)].map((m) => m[1]);
-    const formatSrc = readFileSync(formatPath, 'utf-8');
-    const webBlock = formatSrc.match(/CANONICAL_STATES\s*=\s*\[([\s\S]*?)\]/)?.[1] ?? '';
-    const webStates = new Set([...webBlock.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]));
-    const webMissing = stateLabels.filter((l) => !webStates.has(l));
-    if (stateLabels.length > 0 && webMissing.length === 0) {
-      pass('web CANONICAL_STATES covers every canonical state label from states.yml (#2249)');
+  // 55.3b Every web status list must carry every canonical state. states.yml is
+  // the source of truth; the web keeps SIX hardcoded copies (title-case canonical
+  // lists + UPPERCASE tab/stage lists). `Hired` (#2050) had silently drifted out
+  // of ALL of them — a landed job was unsettable, uncounted in the funnel, and a
+  // gray "unknown" dot (#2249). Cross-check each so a future core state can't
+  // vanish from the dashboard again. The analytics funnel intentionally omits
+  // SKIP (not a funnel stage), so it's excluded there.
+  const stateLabels = [...statesSrc.matchAll(/^\s+label:\s*"?([A-Za-z]+)"?\s*$/gm)].map((m) => m[1]);
+  const webStatusLists = [
+    { file: 'web/src/lib/format.ts', re: /CANONICAL_STATES\s*=\s*\[([\s\S]*?)\]/, upper: false, exclude: [] },
+    { file: 'web/src/app/actions/registry.ts', re: /CANON_STATUS\s*=\s*\[([\s\S]*?)\]/, upper: false, exclude: [] },
+    { file: 'web/src/app/actions/registry.ts', re: /TAB_VALUES\s*=\s*\[([\s\S]*?)\]/, upper: true, exclude: [] },
+    { file: 'web/src/components/pipeline-view.tsx', re: /TABS\s*=\s*\[([\s\S]*?)\]/, upper: true, exclude: [] },
+    { file: 'web/src/app/analytics/page.tsx', re: /STAGES[^=]*=\s*\[([\s\S]*?)\];/, upper: true, exclude: ['SKIP'] },
+  ];
+  if (stateLabels.length > 0) {
+    const drift = [];
+    for (const { file, re, upper, exclude } of webStatusLists) {
+      const p = join(ROOT, file);
+      if (!existsSync(p)) continue;
+      const block = readFileSync(p, 'utf-8').match(re)?.[1] ?? '';
+      const present = new Set([...block.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]));
+      const want = (upper ? stateLabels.map((l) => l.toUpperCase()) : stateLabels).filter((l) => !exclude.includes(l));
+      const missing = want.filter((l) => !present.has(l));
+      if (missing.length) drift.push(`${file} (${missing.join(', ')})`);
+    }
+    if (drift.length === 0) {
+      pass('every web status list covers all canonical states from states.yml (#2249)');
     } else {
-      fail(`web/src/lib/format.ts CANONICAL_STATES is missing canonical state(s): ${webMissing.join(', ')} — the web dashboard can't set or recognize them (#2249)`);
+      fail(`web status list(s) missing canonical state(s) — dashboard can't set/count them (#2249): ${drift.join(' | ')}`);
     }
   }
 
