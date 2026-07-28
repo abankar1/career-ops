@@ -9536,6 +9536,29 @@ try {
     } else {
       fail(`web status list(s) missing canonical state(s) — dashboard can't set/count them (#2249): ${drift.join(' | ')}`);
     }
+
+    // The assistant preamble also enumerates the states in PROSE (the setStatus
+    // list + the filterPipeline tab enum). Those drift the same way — the AI
+    // couldn't offer to set/filter by Hired — so check them too (#2249).
+    const assistantPath = join(ROOT, 'web', 'src', 'app', 'api', 'assistant', 'route.ts');
+    if (existsSync(assistantPath)) {
+      const src = readFileSync(assistantPath, 'utf-8');
+      const proseChecks = [
+        { name: 'setStatus canonical-states list', text: src.match(/Canonical states:\s*([^.]*)\./)?.[1] ?? '', upper: false },
+        { name: 'filterPipeline tab enum', text: src.match(/tab ∈\s*([^;]*);/)?.[1] ?? '', upper: true },
+      ];
+      const proseDrift = [];
+      for (const { name, text, upper } of proseChecks) {
+        const want = upper ? stateLabels.map((l) => l.toUpperCase()) : stateLabels;
+        const missing = want.filter((l) => !new RegExp(`\\b${l}\\b`).test(text));
+        if (missing.length) proseDrift.push(`${name} (${missing.join(', ')})`);
+      }
+      if (proseDrift.length === 0) {
+        pass('assistant preamble prose enumerates every canonical state (#2249)');
+      } else {
+        fail(`assistant preamble missing canonical state(s) in prose (#2249): ${proseDrift.join(' | ')}`);
+      }
+    }
   }
 
   // 55.4 report format blocks (modes/oferta.md → web report parser)
