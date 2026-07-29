@@ -654,6 +654,13 @@ async function runSelfTest() {
     check(rejected.facts[0].note === 'a rejection is an answer', 'Rejected fact carries the rejection-is-an-answer note');
   }
 
+  // --- a hire is the strongest answer (must not fall through to no-history) ---
+  {
+    const hired = computeResponsiveness([row(31, 'HireCo', 'Hired', '2026-06-01')], new Map(), { now: NOW, silenceWindowDays: 28 });
+    check(hired.facts.length === 1 && hired.facts[0].outcome === 'Hired', 'Hired row produces a responded fact with outcome Hired');
+    check(hired.label === 'responded-before', 'a company that hired you labels responded-before, never no-history');
+  }
+
   // --- pin-line exclusion (parseFollowups already handles this; assert via fixture) ---
   {
     const followupsMd = [
