@@ -76,6 +76,29 @@ function inRange(dateStr, from, to) {
   return isValidDateStr(dateStr) && dateStr >= from && dateStr <= to;
 }
 
+/**
+ * Value of a value-taking flag, accepting BOTH `--flag value` and `--flag=value`.
+ *
+ * `args.indexOf('--from')` is -1 for the `=` form, so a space-separated-only
+ * lookup silently DISCARDS the bound the caller supplied and the digest then
+ * reports a different week than the one that was asked for — the same silent
+ * discard `computeWeeklyDigest` already refuses to perform for a half-supplied
+ * range. company-history.mjs carries this same note and the same fix.
+ *
+ * @param {string[]} args - argv slice.
+ * @param {string} flag - Flag name including leading dashes, e.g. '--from'.
+ * @returns {string|undefined} The value, or undefined when the flag is absent.
+ */
+export function flagValue(args, flag) {
+  // `--flag=value` first: indexOf() can't see it, so checking it second would
+  // let the space-separated lookup fall through and drop the value.
+  const eq = args.find((a) => a.startsWith(`${flag}=`));
+  if (eq) return eq.slice(flag.length + 1);
+  const idx = args.indexOf(flag);
+  if (idx === -1) return undefined;
+  return args[idx + 1];
+}
+
 // ── Session file parsing ────────────────────────────────────────────
 
 /**
@@ -624,14 +647,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
 
   const summaryMode = args.includes('--summary');
-  const fromIdx = args.indexOf('--from');
-  const toIdx = args.indexOf('--to');
-  const dirIdx = args.indexOf('--dir');
-  const from = fromIdx !== -1 ? args[fromIdx + 1] : undefined;
-  const to = toIdx !== -1 ? args[toIdx + 1] : undefined;
-  const sessionsDir = dirIdx !== -1 && args[dirIdx + 1] !== undefined ? args[dirIdx + 1] : DEFAULT_SESSIONS_DIR;
+  const from = flagValue(args, '--from');
+  const to = flagValue(args, '--to');
+  const dirValue = flagValue(args, '--dir');
+  const sessionsDir = dirValue ? dirValue : DEFAULT_SESSIONS_DIR;
 
-  if ((from && !isValidDateStr(from)) || (to && !isValidDateStr(to))) {
+  // `!== undefined`, not truthiness: an explicitly EMPTY bound (`--from=`) is a
+  // malformed date the caller typed, not an absent flag. Treating it as absent
+  // let '' through as a range bound, and `dateStr >= ''` is true for every
+  // session — silently widening the window instead of reporting the mistake.
+  if ((from !== undefined && !isValidDateStr(from)) || (to !== undefined && !isValidDateStr(to))) {
     console.error('  Invalid --from/--to date — expected YYYY-MM-DD');
     process.exit(1);
   }
