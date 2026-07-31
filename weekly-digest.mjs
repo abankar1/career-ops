@@ -412,6 +412,16 @@ async function runSelfTest() {
   const sun = computeDefaultRange(new Date('2026-07-26T23:00:00Z'));
   check(sun.from === '2026-07-20' && sun.to === '2026-07-26', 'computeDefaultRange handles Sunday itself as the range end');
 
+  // flagValue: both CLI spellings must reach the same value. The `=` form used
+  // to be invisible to indexOf(), so `--from=2020-01-01` silently produced the
+  // CURRENT week's digest instead of the requested one.
+  check(flagValue(['--from', '2020-01-01'], '--from') === '2020-01-01', 'flagValue reads the space-separated form');
+  check(flagValue(['--from=2020-01-01'], '--from') === '2020-01-01', 'flagValue reads the --flag=value form');
+  check(flagValue(['--summary'], '--from') === undefined, 'flagValue returns undefined for an absent flag');
+  check(flagValue(['--from='], '--from') === '', 'flagValue reports an explicitly empty value as empty, not absent');
+  check(flagValue(['--dir=/tmp/x=y'], '--dir') === '/tmp/x=y', 'flagValue keeps later "=" characters in the value');
+  check(flagValue(['--to=2020-01-07', '--from=2020-01-01'], '--from') === '2020-01-01', 'flagValue matches its own flag, not a similarly-shaped neighbour');
+
   // parseSessionFile: well-formed session with two competency tags.
   const goodSession = [
     '---',
