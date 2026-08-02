@@ -600,6 +600,21 @@ async function runSelfTest() {
     check(result.dataQuality.unjoinable === 1, 'a punctuation-only company key is excluded and counted as unjoinable');
   }
 
+  // --- non-Latin companies are first-class, and distinct from each other (#2429) ---
+  {
+    const rows = [
+      row(4, 'アクメ株式会社', 'Applied', '2026-01-01'),
+      row(5, 'グロベックス合同会社', 'Applied', '2026-01-02'),
+      row(6, 'Яндекс', 'Applied', '2026-01-03'),
+    ];
+    const result = buildCompanyCards(
+      { trackerRows: rows, followupRows: [], repostClusters: [], sourcesLoaded: { tracker: true, followups: false, scanHistory: false, statusLog: false } },
+      { now: NOW, silenceWindowDays: 28 },
+    );
+    check(result.companies.length === 3, 'three different non-Latin companies produce three cards, not one');
+    check(result.dataQuality.unjoinable === 0, 'a non-Latin company name is joinable, not a data-quality defect');
+  }
+
   // --- label goldens ---
   {
     // silent-on-you: one Applied row well past the window, nothing else.
