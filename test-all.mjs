@@ -8569,6 +8569,18 @@ try {
   } else {
     fail(`non-Latin company keys collapsed: ${JSON.stringify(keys)}`);
   }
+  // Combining marks must SURVIVE the fold. Indic matras have no precomposed
+  // form, so a key that strips \p{M} makes Devanagari कंपनी and कपनी (and क
+  // and का) identical — re-introducing, for the shipped hi/ar locales, exactly
+  // the collision this fix removes for ja/zh/ru. This is why normalizeCompany
+  // delegates to normalizeTextKey (which keeps \p{M}) rather than to a
+  // company-local fold (#2429 review, #2445).
+  const markPairs = [['कंपनी', 'कपनी'], ['क', 'का']];
+  if (markPairs.every(([a, b]) => normalizeCompany(a) !== normalizeCompany(b))) {
+    pass('company keys keep combining marks, so Devanagari names differing only in matras stay distinct (#2429)');
+  } else {
+    fail('combining marks stripped from the company key — Indic names differing only in matras now collide');
+  }
   // The `?` unknown-employer marker MUST still fold to '' — the #1596
   // cross-channel guard depends on those rows sharing one key.
   if (normalizeCompany('?') === '' && normalizeCompany('—') === '') {
