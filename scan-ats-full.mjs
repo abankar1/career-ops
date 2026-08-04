@@ -256,7 +256,7 @@ function parseArgs(argv) {
     return kv ? kv.split('=').slice(1).join('=') : null;
   };
   // Validated by the SAME parser scan.mjs uses, so one flag name cannot mean
-  // two different things (#2492). `Number(...) || 3` silently swallowed every
+  // two different things (#2498). `Number(...) || 3` silently swallowed every
   // malformed operand: `--since abc` and `--since 0` became 3 while the user
   // believed they had scanned the window they typed; `--since -5` put the
   // cutoff in the FUTURE so nothing was ever eligible, which reads exactly like

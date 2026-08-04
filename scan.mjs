@@ -332,7 +332,7 @@ export function buildPostingAgeFilter(maxAgeDays, now = Date.now()) {
  * `--since 0` both became 3 (the user believes they scanned the window they
  * typed), `--since -5` produced a cutoff in the FUTURE so nothing was ever
  * eligible (indistinguishable from "no new postings"), and `--since 1e400`
- * became Infinity → an -Infinity cutoff, i.e. no window at all (#2492).
+ * became Infinity → an -Infinity cutoff, i.e. no window at all (#2498).
  *
  * Returns the day count, or null when the flag is absent — the DEFAULT is the
  * caller's to choose (scan.mjs: no bound; scan-ats-full.mjs: 3 days), only the
@@ -2005,7 +2005,7 @@ async function main() {
   //
   // Flag presence, operand validity, duplicate occurrences and the
   // out-of-Date-range case are all handled by the SHARED parseSinceDays(), so
-  // scan-ats-full.mjs cannot disagree about what --since means (#2492).
+  // scan-ats-full.mjs cannot disagree about what --since means (#2498).
   const since = parseSinceDays(args);
   if (since.error) {
     console.error(`Error: ${since.error}`);

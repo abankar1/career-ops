@@ -5134,7 +5134,7 @@ try {
     fail('effective posted-after bound is not the newest of --posted-after and --since');
   }
 
-  // ── --since means the SAME thing in both scanners (#2492) ──────────────
+  // ── --since means the SAME thing in both scanners (#2498) ──────────────
   // scan-ats-full.mjs parsed it as `Number(valueOf('--since')) || 3`, which
   // swallowed every malformed operand: `abc`/`0` silently became 3 (the user
   // believes they scanned the window they typed), `-5` produced a cutoff in the
@@ -5154,7 +5154,7 @@ try {
     ];
     const leaked = bad.filter(([args]) => parseSinceDays(args).error === null);
     if (leaked.length === 0) {
-      pass('parseSinceDays rejects every malformed --since operand instead of coercing it (#2492)');
+      pass('parseSinceDays rejects every malformed --since operand instead of coercing it (#2498)');
     } else {
       fail(`parseSinceDays accepted malformed --since: ${JSON.stringify(leaked.map(([a]) => a))}`);
     }
@@ -5165,16 +5165,16 @@ try {
       // (scan.mjs: no bound; scan-ats-full.mjs: 3 days).
       parseSinceDays([]).days === null && parseSinceDays([]).error === null;
     if (good) {
-      pass('parseSinceDays accepts both spellings and leaves the default to the caller (#2492)');
+      pass('parseSinceDays accepts both spellings and leaves the default to the caller (#2498)');
     } else {
       fail('parseSinceDays mishandled a valid --since or the absent case');
     }
     // Source-level: neither scanner may re-introduce a private coercion.
     const atsSrc = readFileSync(join(ROOT, 'scan-ats-full.mjs'), 'utf-8');
     if (/parseSinceDays\(/.test(atsSrc) && !/Number\(valueOf\('--since'\)\)/.test(atsSrc)) {
-      pass('scan-ats-full.mjs derives --since from the shared parser, not its own Number() coercion (#2492)');
+      pass('scan-ats-full.mjs derives --since from the shared parser, not its own Number() coercion (#2498)');
     } else {
-      fail('scan-ats-full.mjs parses --since itself again — the two scanners can disagree (#2492)');
+      fail('scan-ats-full.mjs parses --since itself again — the two scanners can disagree (#2498)');
     }
   }
 
