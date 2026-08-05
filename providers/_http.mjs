@@ -58,8 +58,18 @@ export async function fetchText(url, opts = {}) {
   return fetchWithTimeout(url, opts, (res) => res.text());
 }
 
-/** Retry policy shared by providers that paginate a large board. */
-const RETRY_DEFAULTS = { retries: 3, baseDelayMs: 500, maxDelayMs: 8_000 };
+/** Jitter added to a backoff so concurrent retries don't re-collide in lockstep. */
+const JITTER_MS = 250;
+
+/**
+ * Retry policy shared by providers that paginate a large board.
+ *
+ * Two retries = three total attempts, matching what #2506 asked for. workday's
+ * private copy used three (four attempts); it can pass `{ retries: 3 }`
+ * explicitly if it converges onto this helper, which is exactly why the policy
+ * is a parameter rather than baked in.
+ */
+const RETRY_DEFAULTS = { retries: 2, baseDelayMs: 500, maxDelayMs: 8_000 };
 
 /** Awaitable sleep that honours a ctx-supplied clock, so tests never wall-clock wait. */
 function sleep(ms, ctx) {
@@ -123,11 +133,15 @@ export async function fetchJsonWithRetry(ctx, url, opts = {}, policy = {}) {
     } catch (err) {
       lastErr = err;
       if (attempt === retries || !isRetryableError(err)) throw err;
-      const backoff = Math.min(baseDelayMs * 2 ** attempt, maxDelayMs);
+      // Cap the backoff at maxDelayMs MINUS the jitter, so the jittered total
+      // still honours the policy limit. Clamping the sum instead would erase
+      // the jitter exactly at the cap — where every retry has converged on the
+      // same delay and de-synchronising them matters most.
+      const backoff = Math.min(baseDelayMs * 2 ** attempt, maxDelayMs - JITTER_MS);
       const retryAfterMs = parseRetryAfterMs(err?.retryAfter);
       const delayMs = retryAfterMs !== null
         ? Math.min(retryAfterMs, maxDelayMs * 4)
-        : backoff + Math.random() * 250;
+        : backoff + Math.random() * JITTER_MS;
       await sleep(delayMs, ctx);
     }
   }

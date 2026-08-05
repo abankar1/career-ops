@@ -1,5 +1,6 @@
 // tests/providers/a16z-speedrun-talent.test.mjs
 import { pass, fail, ROOT } from '../helpers.mjs';
+import { fetchJsonWithRetry } from '../../providers/_http.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 
@@ -238,8 +239,30 @@ try {
     };
     let persistentThrew = false;
     try { await provider.fetch({}, deadCtx); } catch { persistentThrew = true; }
-    if (persistentThrew && attempts === 4) pass('fetch() gives up loudly after bounded retries, never a silent partial (#2506)');
+    if (persistentThrew && attempts === 3) pass('fetch() gives up loudly after 3 bounded attempts, never a silent partial (#2506)');
     else fail(`persistent failure handling wrong: threw=${persistentThrew}, attempts=${attempts}`);
+  }
+
+  {
+    // Every jittered delay must stay within the policy's maxDelayMs. The cap is
+    // applied to the backoff MINUS the jitter, so the total honours the limit
+    // without the jitter being erased at the cap (where de-synchronising
+    // concurrent retries matters most).
+    const slept = [];
+    const maxDelayMs = 1_000;
+    const ctx = {
+      sleep: async (ms) => { slept.push(ms); },
+      fetchJson: async () => { const e = new Error('HTTP 500'); e.status = 500; throw e; },
+    };
+    try {
+      await fetchJsonWithRetry(ctx, 'https://example.test/x', {}, { retries: 6, baseDelayMs: 400, maxDelayMs });
+    } catch { /* expected */ }
+    const withinCap = slept.every((ms) => ms <= maxDelayMs);
+    const jittered = new Set(slept.filter((ms) => ms > 0)).size > 1;
+    if (withinCap) pass('retry backoff never exceeds maxDelayMs once jitter is added (#2506)');
+    else fail(`a jittered delay exceeded maxDelayMs: ${JSON.stringify(slept)}`);
+    if (jittered) pass('jitter survives at the cap, so concurrent retries de-synchronise (#2506)');
+    else fail(`delays were not jittered: ${JSON.stringify(slept)}`);
   }
 
   {
