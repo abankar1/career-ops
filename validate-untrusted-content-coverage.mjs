@@ -24,8 +24,8 @@
  * Exit 0 = clean. Exit 1 = coverage gap listed.
  */
 
-import { readFileSync, existsSync } from 'fs';
-import { dirname, join } from 'path';
+import { readFileSync, existsSync, globSync } from 'fs';
+import { dirname, join, sep } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -33,35 +33,78 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const MARKER = 'Untrusted External Content';
 const CANONICAL_HEADING = `## ${MARKER} (CRITICAL)`;
 
-// Every mode/prompt file that ingests raw external text (JD/posting body,
-// scraped page, form field, recruiter email) must reference the canonical
-// directive. Modes that only ever operate on already-vetted in-scope files
-// (cv.md, config/profile.yml, the tracker) are not listed here — they have
-// no untrusted-content ingestion surface to annotate.
-const COVERED_MODES = [
-  'modes/oferta.md',
-  'modes/auto-pipeline.md',
-  'modes/pipeline.md',
-  'modes/scan.md',
-  'modes/apply.md',
+// ── Derivation, not a hardcoded roster ────────────────────────────────────
+// COVERED_MODES used to be a hand-maintained list. A hardcoded coverage list
+// can only ever chase reality: #2368 named 10 modes, #2461 had to append 4,
+// and while that PR was open `modes/pdf/hm-audit.md` landed ingesting
+// WebSearch results — with this validator staying green throughout. So the
+// roster is now DERIVED: any mode naming a fetch primitive is required to
+// carry the marker, which makes a newly-added ingesting mode fail closed
+// instead of silently extending the drift.
+
+/** Instructions that pull raw external text into a mode's context. */
+const FETCH_PRIMITIVES = /WebFetch|WebSearch|browser_navigate|Playwright|playwright/;
+
+/**
+ * Files that name a fetch primitive but do NOT ingest untrusted text.
+ * Every entry carries its reason: an exclusion list without stated reasons is
+ * just a second hardcode wearing a different hat, and a future reader has no
+ * way to check whether it is still true.
+ */
+const EXCLUSIONS = new Map([
+  ['batch/README.md', 'contributor docs — names Playwright as an install dependency ("Playwright chromium installed"), never fetches'],
+  ['modes/_shared.md', 'checked separately below as the shared preamble every mode inherits, not as an ingesting mode'],
+]);
+
+/**
+ * Modes that ingest untrusted text WITHOUT naming a fetch primitive, so
+ * derivation alone would drop them. Both were already covered and must stay
+ * covered: `batch` reads JD files supplied by the run, and `reply-watch`
+ * classifies recruiter emails. Keeping them as an explicit floor is what stops
+ * "derive the list" from quietly NARROWING coverage.
+ */
+const ALWAYS_REQUIRED = [
   'modes/batch.md',
-  'batch/batch-prompt.md',
-  'modes/deep.md',
-  'modes/contacto.md',
   'modes/reply-watch.md',
-  // #2368 set the criterion — "every mode that genuinely ingests raw external
-  // text" — and named its only intentional exclusions (`ofertas`, `discover`).
-  // These four meet the criterion and were not among the exclusions: triage
-  // WebFetches posting URLs, cover works from a pasted JD, interview-prep
-  // WebFetches the JD as its headless fallback, and expand reads third-party
-  // READMEs and portfolio pages on its way to proposing cv.md additions.
-  // cover.md and interview-prep.md do not load _shared.md at all, so for them
-  // there was no transitive pointer either.
-  'modes/triage.md',
-  'modes/cover.md',
-  'modes/interview-prep.md',
-  'modes/expand.md',
+  // Ingests PASTED contract text. It also names the primitives, but only to
+  // FORBID them ("This mode must not call WebSearch, WebFetch") — the detector
+  // cannot tell use from prohibition, so listing it here rests its coverage on
+  // the real reason rather than on a match that happens to land right.
+  'modes/offer-prep.md',
 ];
+
+/**
+ * Localized mode mirrors (`modes/<lang>/**`) are deliberately out of scope for
+ * this validator. 91 of them name a fetch primitive because they translate a
+ * top-level mode whose directive IS enforced here; requiring a translated
+ * marker in all 91 is a separate decision about localization policy, not a
+ * silent consequence of switching to derivation. Flagged in #2480.
+ */
+const LOCALIZED_MIRROR = /^modes\/[a-z]{2}(-[A-Z]{2})?\//;
+
+/**
+ * Pure, self-testable: given candidate paths and a reader, return the files
+ * that must carry the directive marker.
+ *
+ * @param {string[]} paths - Candidate relative paths.
+ * @param {(rel: string) => string} readFile - Returns a file's text.
+ * @returns {string[]} Sorted paths requiring the marker.
+ */
+export function deriveIngestingModes(paths, readFile) {
+  const required = new Set(ALWAYS_REQUIRED.filter((p) => paths.includes(p)));
+  for (const rel of paths) {
+    if (EXCLUSIONS.has(rel)) continue;
+    if (LOCALIZED_MIRROR.test(rel)) continue;
+    let text = '';
+    try {
+      text = readFile(rel);
+    } catch {
+      continue;
+    }
+    if (FETCH_PRIMITIVES.test(text)) required.add(rel);
+  }
+  return [...required].sort();
+}
 
 /** Pure, self-testable: does this file's text carry the directive marker? */
 export function hasDirectiveMarker(text) {
@@ -92,6 +135,40 @@ if (process.argv.includes('--self-test')) {
   assert(hasDirectiveMarker('This mode has no such reference.') === false, 'text without the marker must not match');
   assert(hasDirectiveMarker(null) === false, 'non-string input must not match');
 
+  // ── derivation (the whole point of #2480) ───────────────────────────────
+  const fake = {
+    'modes/uses-webfetch.md': 'Step 2 — WebFetch the posting URL.',
+    'modes/uses-websearch.md': 'Research the company with WebSearch.',
+    'modes/uses-playwright.md': 'Fall back to Playwright when JS-rendered.',
+    'modes/no-ingestion.md': 'Reads cv.md and config/profile.yml only.',
+    'modes/batch.md': 'Runs the batch workers.',
+    'modes/reply-watch.md': 'Classifies replies.',
+    'modes/offer-prep.md': 'This mode must not call WebSearch or WebFetch.',
+    'batch/README.md': 'Node.js >= 18, Playwright chromium installed.',
+    'modes/_shared.md': 'WebFetch appears in the shared preamble.',
+    'modes/de/oferta.md': 'WebFetch die Stellenanzeige.',
+  };
+  const read = (rel) => fake[rel];
+  const derived = deriveIngestingModes(Object.keys(fake), read);
+
+  assert(derived.includes('modes/uses-webfetch.md'), 'a mode naming WebFetch must be derived as ingesting');
+  assert(derived.includes('modes/uses-websearch.md'), 'a mode naming WebSearch must be derived as ingesting');
+  assert(derived.includes('modes/uses-playwright.md'), 'a mode naming Playwright must be derived as ingesting');
+  // The acceptance criterion: a BRAND NEW ingesting mode is required with no
+  // list to edit. This is what a hardcoded roster could never do.
+  assert(deriveIngestingModes(['modes/freshly-added.md'], () => 'WebFetch the URL').length === 1,
+    'a freshly-created ingesting mode must be required automatically');
+  assert(!derived.includes('modes/no-ingestion.md'), 'a mode with no fetch primitive must not be required');
+  // Floor: these ingest without naming a primitive, so derivation alone would
+  // DROP them — the regression this list exists to prevent.
+  assert(derived.includes('modes/batch.md'), 'batch.md must stay required via the floor');
+  assert(derived.includes('modes/reply-watch.md'), 'reply-watch.md must stay required via the floor');
+  assert(derived.includes('modes/offer-prep.md'), 'offer-prep.md must stay required via the floor (pasted contract text)');
+  // Exclusions, each for its stated reason.
+  assert(!derived.includes('batch/README.md'), 'contributor docs naming Playwright as a dependency must be excluded');
+  assert(!derived.includes('modes/_shared.md'), '_shared.md is checked separately, not as an ingesting mode');
+  assert(!derived.includes('modes/de/oferta.md'), 'localized mirrors are out of scope for this validator');
+
   console.log('ALL SELF-TESTS PASSED');
   process.exit(0);
 }
@@ -116,14 +193,16 @@ if (!existsSync(sharedPath)) {
   problems.push(`modes/_shared.md does not reference "${MARKER}"`);
 }
 
-for (const rel of COVERED_MODES) {
-  const p = join(ROOT, rel);
-  if (!existsSync(p)) {
-    problems.push(`${rel} listed in COVERED_MODES but does not exist`);
-    continue;
-  }
-  if (!hasDirectiveMarker(readFileSync(p, 'utf-8'))) {
-    problems.push(`${rel} does not reference "${MARKER}"`);
+const candidates = [
+  ...globSync('modes/**/*.md', { cwd: ROOT }),
+  ...globSync('batch/*.md', { cwd: ROOT }),
+].map((p) => p.split(sep).join('/'));
+
+const required = deriveIngestingModes(candidates, (rel) => readFileSync(join(ROOT, rel), 'utf-8'));
+
+for (const rel of required) {
+  if (!hasDirectiveMarker(readFileSync(join(ROOT, rel), 'utf-8'))) {
+    problems.push(`${rel} ingests external text but does not reference "${MARKER}"`);
   }
 }
 
@@ -136,5 +215,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log(`OK: canonical directive present in AGENTS.md and referenced in modes/_shared.md + ${COVERED_MODES.length} ingesting modes`);
+console.log(`OK: canonical directive present in AGENTS.md and referenced in modes/_shared.md + ${required.length} derived ingesting modes`);
 process.exit(0);
