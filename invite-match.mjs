@@ -463,6 +463,14 @@ function runSelfTest() {
   check(normalizeCompanyName('Яндекс') === 'яндекс', 'a Cyrillic company name survives normalization and case-folds');
   check(normalizeCompanyName('北京字节跳动') !== normalizeCompanyName('アクメ株式会社'), 'two different non-Latin companies keep distinct keys');
   check(normalizeCompanyName('ＡＣＭＥ') === normalizeCompanyName('ACME'), 'NFKC folds full-width to half-width');
+  // The rest of the shipped non-Latin markets, so coverage isn't just ja/ru.
+  check(normalizeCompanyName('삼성전자') === '삼성전자', 'a Korean company name survives normalization');
+  check(normalizeCompanyName('Київстар') === 'київстар', 'a Ukrainian company name survives normalization and case-folds');
+  check(normalizeCompanyName('شركة النور') === 'شركة النور', 'an Arabic company name survives normalization, spaces intact');
+  check(normalizeCompanyName('हिन्दी टेक') === 'हिन्दी टेक', 'a Devanagari name survives normalization');
+  // The actual \p{M} invariant: names differing ONLY in combining marks must
+  // stay distinct. A mark-stripping fold would collapse these into one company.
+  check(normalizeCompanyName('कंपनी') !== normalizeCompanyName('कपनी'), 'Devanagari names differing only in matras keep distinct keys');
   {
     const rows = [
       { num: 1, company: 'アクメ株式会社', role: 'エンジニア', status: 'Applied', notes: '' },
