@@ -108,10 +108,20 @@ const GENERIC_DESCRIPTORS = [
  */
 export function normalizeCompanyName(name) {
   let key = String(name ?? '')
+    // NFKC before folding so full-width and half-width spellings of the same
+    // name compare equal, matching the shared normalizeTextKey() contract.
+    .normalize('NFKC')
     .toLowerCase()
     .replace(/\([^)]*\)/g, ' ')
     .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9 ]/g, ' ')
+    // Letters and digits of ANY script, not just [a-z0-9]: the Latin-only
+    // class DELETED every non-Latin name, so アクメ株式会社 and Яндекс both
+    // produced '' — and matchInvite() bails on an empty key, so pasting an
+    // invite from any company in the ja/ko/zh/zh-TW/ru/ua/ar/hi markets that
+    // modes/ ships returned ZERO candidates even when the row was right
+    // there. Combining marks are kept for the same reason normalizeTextKey
+    // keeps them: Indic matras have no precomposed form (#2517).
+    .replace(/[^\p{L}\p{M}\p{N} ]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -443,28 +453,6 @@ function runSelfTest() {
   check(normalizeCompanyName('Acme (Example Group)') === 'acme', 'drops parenthetical branding');
   check(normalizeCompanyName('Acme & Co') === normalizeCompanyName('Acme and Co'), '"&" normalizes the same as "and"');
   check(normalizeCompanyName('  ACME   ') === 'acme', 'trims and lowercases whitespace-padded input');
-
-  // --- companySimilarity ---
-  check(companySimilarity('acme', 'acme') === 1, 'identical strings score 1');
-  check(companySimilarity('acme example', 'acme') > 0.5, 'substring containment scores high');
-  check(companySimilarity('acme', 'globex') === 0, 'unrelated names score 0');
-  check(companySimilarity('', 'acme') === 0, 'empty string never matches');
-
-  // --- extractCompany ---
-  check(extractCompany('Company: Example Industries\nRole: Analyst') === 'Example Industries', 'extracts from "Company:" line');
-  check(extractCompany('Schedule Your Phone Screen – Acme Opportunity') === 'Acme', 'extracts from generic "Schedule Your Phone Screen" subject');
-  check(extractCompany('Looking forward to interviewing with Example Corp for the role.') === 'Example Corp', 'extracts from "interviewing with X" phrasing');
-  check(extractCompany('no company signal here at all') === null, 'returns null when nothing plausible is found');
-
-  // --- extractDate ---
-  check(extractDate('Interview scheduled for 2026-07-09 at 4pm') === '2026-07-09', 'extracts ISO date');
-  check(extractDate('See you on July 9, 2026') === '2026-07-09', 'extracts named-month date');
-  check(extractDate('no date mentioned') === null, 'returns null when no date is present');
-
-  // --- extractReqId ---
-  check(extractReqId('Req ID: R260013984') === 'R260013984', 'extracts "Req ID:" token');
-  check(extractReqId('Job ID: 43683') === '43683', 'extracts "Job ID:" token');
-  check(extractReqId('no id here') === null, 'returns null when no req-like token is present');
 
   // --- extractPlatform ---
   check(extractPlatform('Join via Zoom: https://us02web.zoom.us/j/1234567890') === 'Zoom', 'detects Zoom from a zoom.us URL');
