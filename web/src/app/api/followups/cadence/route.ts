@@ -47,13 +47,20 @@ async function readCoreDefaults(): Promise<Partial<Record<ProfileCadenceKey, num
     const parsed = JSON.parse(stdout.slice(start)) as { cadenceDefaults?: unknown };
     if (!isObj(parsed.cadenceDefaults)) return null;
     const core = parsed.cadenceDefaults;
+    // ALL-OR-NOTHING, and no coercion. Number.parseInt would accept "3.5" as 3
+    // and "7days" as 7, and a per-key filter would report defaultsAvailable:
+    // true off a single valid key — either way the form would show a baseline
+    // the core never emitted. A partial or coerced contract is exactly the
+    // silent-wrong-value this whole derivation exists to remove, so a
+    // malformed payload degrades to "no defaults" instead.
     const out: Partial<Record<ProfileCadenceKey, number>> = {};
     for (const key of PROFILE_CADENCE_KEYS) {
       const coreKey = key === "applied_max_followups" ? key : key.replace(/_days$/, "");
-      const n = Number.parseInt(String(core[coreKey]), 10);
-      if (Number.isFinite(n) && n >= 0) out[key] = n;
+      const raw = core[coreKey];
+      if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) return null;
+      out[key] = raw;
     }
-    return Object.keys(out).length ? out : null;
+    return out;
   } catch {
     return null;
   }

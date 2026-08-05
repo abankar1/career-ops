@@ -11437,11 +11437,38 @@ try {
   // reintroduce a local table (a fallback copy drifts exactly like the original
   // did — states.ts FALLBACK, #2282).
   {
-    const cadSrc = readFileSync(join(ROOT, 'followup-cadence.mjs'), 'utf-8');
-    if (/cadenceDefaults:\s*DEFAULT_CADENCE/.test(cadSrc)) {
-      pass('followup-cadence.mjs --json still emits cadenceDefaults for the web to derive from (#2369)');
+    // Assert the EMITTED payload, not just the source text: a regex over the
+    // source proves the literal is present, not that the contract the web
+    // parses is intact. analyzeFromContent() is the same code path --json
+    // prints, driven from strings so it needs no tracker on disk.
+    const { analyzeFromContent, DEFAULT_CADENCE } = await import(pathToFileURL(join(ROOT, 'followup-cadence.mjs')).href);
+    const emitted = analyzeFromContent(
+      '# Applications Tracker\n\n| # | Date | Company | Role | Score | Status | PDF | Report | Notes |\n' +
+      '|---|------|---------|------|-------|--------|-----|--------|-------|\n' +
+      '| 1 | 2026-06-01 | Acme | Engineer | 4.2/5 | Applied | ❌ | [1](../reports/001-acme.md) | t |\n',
+      '',
+    );
+    const defaults = emitted?.cadenceDefaults;
+    const cadKeys = Object.keys(DEFAULT_CADENCE);
+    const schemaOk = defaults && typeof defaults === 'object'
+      && cadKeys.length > 0
+      && cadKeys.every((k) => Number.isInteger(defaults[k]) && defaults[k] >= 0)
+      && Object.keys(defaults).length === cadKeys.length;
+    if (schemaOk) {
+      pass('followup-cadence --json emits a complete integer cadenceDefaults for the web to derive from (#2369)');
     } else {
-      fail('followup-cadence.mjs no longer emits cadenceDefaults — the web cadence form loses its baseline (#2369)');
+      fail(`cadenceDefaults payload broken — the web cadence form loses its baseline (#2369): ${JSON.stringify(defaults)}`);
+    }
+    // Every key the web maps must exist under the core's un-suffixed spelling.
+    const webKeys = ['applied_first_days', 'applied_subsequent_days', 'applied_max_followups', 'responded_initial_days', 'responded_subsequent_days', 'interview_thankyou_days'];
+    const mapped = webKeys.every((k) => {
+      const coreKey = k === 'applied_max_followups' ? k : k.replace(/_days$/, '');
+      return Number.isInteger(defaults?.[coreKey]);
+    });
+    if (mapped) {
+      pass('every web PROFILE_CADENCE_KEY maps onto a core cadenceDefaults key (#2369)');
+    } else {
+      fail('the web _days key mapping no longer lines up with the core cadenceDefaults keys (#2369)');
     }
     const webFollowups = join(ROOT, 'web', 'src', 'lib', 'followups.ts');
     if (existsSync(webFollowups)) {
