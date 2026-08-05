@@ -454,6 +454,48 @@ function runSelfTest() {
   check(normalizeCompanyName('Acme & Co') === normalizeCompanyName('Acme and Co'), '"&" normalizes the same as "and"');
   check(normalizeCompanyName('  ACME   ') === 'acme', 'trims and lowercases whitespace-padded input');
 
+  // Non-Latin company names must survive the fold (#2517). The Latin-only
+  // [a-z0-9] class deleted them entirely, so every one keyed to '' and
+  // matchInvite's `if (!targetKey) return []` bailed — pasting an invite from
+  // any company in the ja/ko/zh/zh-TW/ru/ua/ar/hi markets modes/ ships
+  // returned ZERO candidates even when the row was right there.
+  check(normalizeCompanyName('アクメ株式会社') === 'アクメ株式会社', 'a Japanese company name survives normalization');
+  check(normalizeCompanyName('Яндекс') === 'яндекс', 'a Cyrillic company name survives normalization and case-folds');
+  check(normalizeCompanyName('北京字节跳动') !== normalizeCompanyName('アクメ株式会社'), 'two different non-Latin companies keep distinct keys');
+  check(normalizeCompanyName('ＡＣＭＥ') === normalizeCompanyName('ACME'), 'NFKC folds full-width to half-width');
+  {
+    const rows = [
+      { num: 1, company: 'アクメ株式会社', role: 'エンジニア', status: 'Applied', notes: '' },
+      { num: 2, company: 'Acme Inc', role: 'Engineer', status: 'Applied', notes: '' },
+    ];
+    const jp = matchInvite({ company: 'アクメ株式会社' }, rows);
+    check(jp.length === 1 && jp[0].appNumber === 1, 'an invite from a non-Latin company matches its own tracker row');
+    const latin = matchInvite({ company: 'Acme Inc' }, rows);
+    check(latin.length === 1 && latin[0].appNumber === 2, 'the Latin path still matches its own row, unchanged');
+  }
+
+  // --- companySimilarity ---
+  check(companySimilarity('acme', 'acme') === 1, 'identical strings score 1');
+  check(companySimilarity('acme example', 'acme') > 0.5, 'substring containment scores high');
+  check(companySimilarity('acme', 'globex') === 0, 'unrelated names score 0');
+  check(companySimilarity('', 'acme') === 0, 'empty string never matches');
+
+  // --- extractCompany ---
+  check(extractCompany('Company: Example Industries\nRole: Analyst') === 'Example Industries', 'extracts from "Company:" line');
+  check(extractCompany('Schedule Your Phone Screen – Acme Opportunity') === 'Acme', 'extracts from generic "Schedule Your Phone Screen" subject');
+  check(extractCompany('Looking forward to interviewing with Example Corp for the role.') === 'Example Corp', 'extracts from "interviewing with X" phrasing');
+  check(extractCompany('no company signal here at all') === null, 'returns null when nothing plausible is found');
+
+  // --- extractDate ---
+  check(extractDate('Interview scheduled for 2026-07-09 at 4pm') === '2026-07-09', 'extracts ISO date');
+  check(extractDate('See you on July 9, 2026') === '2026-07-09', 'extracts named-month date');
+  check(extractDate('no date mentioned') === null, 'returns null when no date is present');
+
+  // --- extractReqId ---
+  check(extractReqId('Req ID: R260013984') === 'R260013984', 'extracts "Req ID:" token');
+  check(extractReqId('Job ID: 43683') === '43683', 'extracts "Job ID:" token');
+  check(extractReqId('no id here') === null, 'returns null when no req-like token is present');
+
   // --- extractPlatform ---
   check(extractPlatform('Join via Zoom: https://us02web.zoom.us/j/1234567890') === 'Zoom', 'detects Zoom from a zoom.us URL');
   check(extractPlatform('Join Microsoft Teams Meeting: https://teams.microsoft.com/l/meetup-join/xyz') === 'Microsoft Teams', 'detects Microsoft Teams from a teams.microsoft.com URL');
