@@ -248,21 +248,50 @@ try {
     // applied to the backoff MINUS the jitter, so the total honours the limit
     // without the jitter being erased at the cap (where de-synchronising
     // concurrent retries matters most).
+    //
+    // Math.random is stubbed so the CAPPED attempts are deterministically
+    // distinct: an earlier version of this test checked every delay, which
+    // included the pre-cap 400/800 steps and therefore passed even if all
+    // cap-level delays were identical — it did not test the property it named.
     const slept = [];
     const maxDelayMs = 1_000;
     const ctx = {
       sleep: async (ms) => { slept.push(ms); },
       fetchJson: async () => { const e = new Error('HTTP 500'); e.status = 500; throw e; },
     };
+    const realRandom = Math.random;
+    const seq = [0, 0.25, 0.5, 0.75, 1];
+    let i = 0;
+    Math.random = () => seq[i++ % seq.length];
     try {
-      await fetchJsonWithRetry(ctx, 'https://example.test/x', {}, { retries: 6, baseDelayMs: 400, maxDelayMs });
+      await fetchJsonWithRetry(ctx, 'https://example.test/x', {}, { retries: 5, baseDelayMs: 400, maxDelayMs });
+    } catch { /* expected */ } finally {
+      Math.random = realRandom;
+    }
+    // baseDelayMs 400 → 400, 800, then every later attempt sits at the cap.
+    const capped = slept.slice(2);
+    if (slept.every((ms) => ms >= 0 && ms <= maxDelayMs)) pass('retry backoff never exceeds maxDelayMs once jitter is added (#2506)');
+    else fail(`a jittered delay left [0, maxDelayMs]: ${JSON.stringify(slept)}`);
+    if (capped.length > 1 && new Set(capped).size > 1) pass('jitter survives AT THE CAP, so concurrent retries de-synchronise (#2506)');
+    else fail(`capped delays were identical — jitter erased at the cap: ${JSON.stringify(capped)}`);
+  }
+
+  {
+    // A maxDelayMs below the jitter must not drive the backoff negative and
+    // hand ctx.sleep a negative delay.
+    const slept = [];
+    const ctx = {
+      sleep: async (ms) => { slept.push(ms); },
+      fetchJson: async () => { const e = new Error('HTTP 500'); e.status = 500; throw e; },
+    };
+    try {
+      await fetchJsonWithRetry(ctx, 'https://example.test/x', {}, { retries: 3, baseDelayMs: 400, maxDelayMs: 100 });
     } catch { /* expected */ }
-    const withinCap = slept.every((ms) => ms <= maxDelayMs);
-    const jittered = new Set(slept.filter((ms) => ms > 0)).size > 1;
-    if (withinCap) pass('retry backoff never exceeds maxDelayMs once jitter is added (#2506)');
-    else fail(`a jittered delay exceeded maxDelayMs: ${JSON.stringify(slept)}`);
-    if (jittered) pass('jitter survives at the cap, so concurrent retries de-synchronise (#2506)');
-    else fail(`delays were not jittered: ${JSON.stringify(slept)}`);
+    if (slept.length > 0 && slept.every((ms) => ms >= 0 && ms <= 100)) {
+      pass('a maxDelayMs below the jitter still yields non-negative delays inside the cap (#2506)');
+    } else {
+      fail(`sub-jitter maxDelayMs produced out-of-range delays: ${JSON.stringify(slept)}`);
+    }
   }
 
   {

@@ -137,11 +137,17 @@ export async function fetchJsonWithRetry(ctx, url, opts = {}, policy = {}) {
       // still honours the policy limit. Clamping the sum instead would erase
       // the jitter exactly at the cap — where every retry has converged on the
       // same delay and de-synchronising them matters most.
-      const backoff = Math.min(baseDelayMs * 2 ** attempt, maxDelayMs - JITTER_MS);
+      //
+      // The jitter itself is clamped to maxDelayMs first: a caller passing a
+      // maxDelayMs below JITTER_MS would otherwise drive the backoff negative
+      // and hand ctx.sleep a negative delay.
+      const jitterMs = Math.min(JITTER_MS, Math.max(0, maxDelayMs));
+      const ceiling = Math.max(0, maxDelayMs - jitterMs);
+      const backoff = Math.min(baseDelayMs * 2 ** attempt, ceiling);
       const retryAfterMs = parseRetryAfterMs(err?.retryAfter);
       const delayMs = retryAfterMs !== null
         ? Math.min(retryAfterMs, maxDelayMs * 4)
-        : backoff + Math.random() * JITTER_MS;
+        : backoff + Math.random() * jitterMs;
       await sleep(delayMs, ctx);
     }
   }
