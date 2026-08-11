@@ -15,6 +15,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as yaml from 'js-yaml';
+import { loadCanonicalStates } from './tracker-utils.mjs';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
@@ -82,31 +83,48 @@ export function resolveCadenceConfig({ profilePath = PROFILE_FILE, appliedDays =
 
 const CADENCE = resolveCadenceConfig();
 
-// --- Status normalization (mirrors verify-pipeline.mjs) ---
-const ALIASES = {
-  'evaluada': 'evaluated', 'condicional': 'evaluated', 'hold': 'evaluated',
-  'evaluar': 'evaluated', 'verificar': 'evaluated',
-  'aplicado': 'applied', 'enviada': 'applied', 'aplicada': 'applied',
-  'applied': 'applied', 'sent': 'applied',
-  'respondido': 'responded',
-  'entrevista': 'interview',
-  'oferta': 'offer',
-  // Hired aliases from templates/states.yml — without these, an "Accepted" or
-  // "Contratado" row normalizes to itself, so stats/funnel/company-history
-  // consumers looking for 'hired' silently drop the best outcome in the tracker.
-  'contratado': 'hired', 'contratada': 'hired', 'accepted': 'hired', 'accept': 'hired',
-  'rechazado': 'rejected', 'rechazada': 'rejected',
-  'descartado': 'discarded', 'descartada': 'discarded',
-  'cerrada': 'discarded', 'cancelada': 'discarded',
-  'no aplicar': 'skip', 'no_aplicar': 'skip', 'monitor': 'skip', 'geo blocker': 'skip',
-};
+// --- Status normalization ---
+//
+// DERIVED from templates/states.yml, not a hand-copy of it. The map that used
+// to live here was already missing every Turkish spelling the Go dashboard
+// recognises, so the same tracker row normalized three different ways: the TUI
+// read `Mülakat` as `interview`, this file left it as `mülakat` (matching no
+// ACTIONABLE/ADVANCED set, so the row silently vanished from the funnel), and
+// the web rejected it outright on writeback. tracker-utils already exposes the
+// loader for exactly this — its docstring says "a new state or alias lands in
+// one file and every consumer follows" — it just had no consumer here (#2704).
+//
+// Cached per process: these are short-lived CLI runs, so a single read is
+// correct. A long-running consumer must NOT copy this pattern — see #2590,
+// where caching states.yml for a server's lifetime pinned a stale roster.
+let aliasMapCache = null;
+
+/** alias/id/label (lowercased) → canonical lowercase id, from states.yml. */
+function statusAliasMap() {
+  if (aliasMapCache) return aliasMapCache;
+  const map = new Map();
+  try {
+    for (const st of loadCanonicalStates(join(CAREER_OPS, 'templates', 'states.yml'))) {
+      const id = st.id.toLowerCase();
+      map.set(id, id);
+      if (st.label) map.set(st.label.toLowerCase(), id);
+      for (const a of st.aliases) map.set(String(a).toLowerCase(), id);
+    }
+  } catch {
+    // A missing/malformed states.yml is a broken install. Degrade to
+    // identity-normalization rather than resurrecting a hardcoded table: a
+    // fallback copy is the same copy in disguise and drifts the same way.
+    return (aliasMapCache = new Map());
+  }
+  return (aliasMapCache = map);
+}
 
 const ACTIONABLE_STATUSES = ['applied', 'responded', 'interview'];
 
 export function normalizeStatus(raw) {
   const clean = raw.replace(/\*\*/g, '').trim().toLowerCase()
     .replace(/\s+\d{4}-\d{2}-\d{2}.*$/, '').trim();
-  return ALIASES[clean] || clean;
+  return statusAliasMap().get(clean) || clean;
 }
 
 // --- Date helpers ---
