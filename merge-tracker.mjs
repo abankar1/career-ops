@@ -897,7 +897,12 @@ for (const file of tsvFiles) {
     // to the evaluation that was just superseded. Fall back to the existing
     // flag only when the report is unchanged; when it changes, the manifest is
     // the sole authority (#2594).
-    const reportChanged = reportNum && oldReportNum && String(reportNum) !== String(oldReportNum);
+    // "different, INCLUDING one-side-absent". Requiring both to be truthy meant
+    // a row whose report cell is `—` had oldReportNum === null, so reportChanged
+    // was falsy and the stale ✅ was inherited exactly as before this fix — and a
+    // `—` row with a ✅ is ordinary, it is what a tracker entry added before its
+    // evaluation looks like. Both absent stays "unchanged", which is correct.
+    const reportChanged = String(reportNum ?? '') !== String(oldReportNum ?? '');
     const pdf = reportNum && pdfIndex.has(String(reportNum))
       ? '✅'
       : (reportChanged ? '❌' : duplicate.pdf);

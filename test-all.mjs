@@ -9068,6 +9068,24 @@ try {
     fail(`stale PDF flag survived a report change: ${staleRow.trim()}`);
   }
 
+  // The `—`-to-`[2]` variant. extractReportNum returns null for `—`, so a guard
+  // demanding BOTH sides be truthy fell straight back to duplicate.pdf and
+  // inherited the stale ✅ exactly as before the fix. A `—` row carrying a ✅ is
+  // ordinary — it is a tracker entry added before its evaluation (#2594 review).
+  const dashRow = '| 4 | 2026-01-04 | Acme | Backend Engineer, Payments | 4.5/5 | Evaluated | ✅ | — | backfilled |';
+  const dashFlag = runPdfSyncFixture(
+    'reeval-dash',
+    dashRow,
+    '# report\tpdf\thtml\tformat\tdate\n',
+    [reevalTsv(2)],
+  );
+  const dashResult = dashFlag.merged.split('\n').find((l) => l.startsWith('| 4 ')) || '';
+  if (dashFlag.result !== null && /\[2\]/.test(dashResult) && dashResult.split('|')[7].trim() === '❌') {
+    pass('a re-eval from a report-less (—) row clears the inherited ✅ too (#2594)');
+  } else {
+    fail(`stale PDF flag survived a —-to-[2] report change: ${dashResult.trim()}`);
+  }
+
   const keptFlag = runPdfSyncFixture(
     'reeval-kept',
     reevalRow,
