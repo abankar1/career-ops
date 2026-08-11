@@ -7202,6 +7202,12 @@ try {
       copyFileSync(join(ROOT, 'followup-cadence.mjs'), join(e2eTmp, 'followup-cadence.mjs'));
       copyFileSync(join(ROOT, 'tracker-parse.mjs'), join(e2eTmp, 'tracker-parse.mjs'));
       copyFileSync(join(ROOT, 'tracker-aliases.json'), join(e2eTmp, 'tracker-aliases.json'));
+      // followup-cadence now derives its status aliases from templates/states.yml
+      // via tracker-utils, so the fixture has to carry both — same reason
+      // tracker-aliases.json is copied for tracker-parse.mjs (#2704).
+      copyFileSync(join(ROOT, 'tracker-utils.mjs'), join(e2eTmp, 'tracker-utils.mjs'));
+      mkdirSync(join(e2eTmp, 'templates'), { recursive: true });
+      copyFileSync(join(ROOT, 'templates', 'states.yml'), join(e2eTmp, 'templates', 'states.yml'));
       // 'junction' on Windows, not 'dir': a directory symlink needs
       // SeCreateSymbolicLinkPrivilege, which a normal shell lacks unless
       // Developer Mode is on, so this threw EPERM and failed the test on an
@@ -9665,6 +9671,52 @@ try {
   }
 } catch (e) {
   fail(`non-Latin via guard tests crashed: ${e.message}`);
+}
+
+// ── GO STATUS LITERALS MUST BE states.yml ALIASES (#2704) ─────────
+// The Go dashboard's NormalizeStatus grew its own, larger alias table: it knew
+// every Turkish spelling while states.yml did not, so ONE tracker row
+// normalized three different ways — the TUI read `Mülakat` as interview, the
+// core left it as `mülakat` (matching no ACTIONABLE/ADVANCED set, so the row
+// vanished from the funnel), and the web rejected it on writeback. We ship
+// modes/tr/, so this was live for Turkish users.
+//
+// Guard the direction that actually drifts: every status literal Go matches on
+// must be resolvable through states.yml. Go may still hold MORE matching logic
+// (it uses substring Contains for some), but it must not know a spelling the
+// source of truth has never heard of.
+console.log('\n🧪 Testing Go status literals against states.yml (#2704)...');
+try {
+  const { loadCanonicalStates } = await import(pathToFileURL(join(ROOT, 'tracker-utils.mjs')).href);
+  const states = loadCanonicalStates(join(ROOT, 'templates', 'states.yml'));
+  const known = new Set();
+  for (const st of states) {
+    known.add(st.id.toLowerCase());
+    if (st.label) known.add(st.label.toLowerCase());
+    for (const a of st.aliases) known.add(String(a).toLowerCase());
+  }
+
+  const goPath = join(ROOT, 'dashboard', 'internal', 'data', 'career.go');
+  if (!existsSync(goPath)) {
+    pass('dashboard/internal/data/career.go absent — Go status guard skipped');
+  } else {
+    const go = readFileSync(goPath, 'utf-8');
+    const fnStart = go.indexOf('func NormalizeStatus');
+    const body = fnStart === -1 ? '' : go.slice(fnStart, go.indexOf('\nfunc ', fnStart + 1));
+    // Only the literals used for status matching (== or Contains), not any
+    // other string in the function.
+    const literals = [...body.matchAll(/(?:s == |Contains\(s, )"([^"]+)"/g)].map((m) => m[1].toLowerCase());
+    const unknown = [...new Set(literals)].filter((l) => !known.has(l));
+    if (literals.length === 0) {
+      fail('could not extract any status literals from Go NormalizeStatus — the guard is not actually checking anything (#2704)');
+    } else if (unknown.length === 0) {
+      pass(`every Go status literal (${new Set(literals).size}) resolves through states.yml (#2704)`);
+    } else {
+      fail(`Go NormalizeStatus knows spellings states.yml does not — add them to templates/states.yml: ${unknown.join(', ')}`);
+    }
+  }
+} catch (e) {
+  fail(`Go status literal guard crashed: ${e.message}`);
 }
 
 // ── MERGE-TRACKER: DISTINCT NON-LATIN COMPANIES (#2429) ───────────
