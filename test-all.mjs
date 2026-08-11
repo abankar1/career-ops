@@ -9719,6 +9719,58 @@ try {
   fail(`Go status literal guard crashed: ${e.message}`);
 }
 
+// ── TURKISH DOTTED-CAPITAL CASING (#2704 review) ──────────────────
+// JS lowercases `İ` (U+0130) to `i` + COMBINING DOT ABOVE (U+0307) and the mark
+// survives, so `TEKLİF` became `tekli\u0307f` and matched no alias. Uppercase
+// status words are ordinary in Turkish, so every all-caps Turkish row missed.
+// foldStatusInput drops U+0307 after lowercasing, which repairs 31 of the 32
+// affected spellings at once; the 32nd (`İŞE ALINDI`, where dotless `ı`
+// uppercases to `I` and lowercases back to dotted `i`) is covered by an alias.
+console.log('\n🧪 Testing Turkish uppercase status resolution (#2704)...');
+try {
+  const { loadCanonicalStates, foldStatusInput } = await import(pathToFileURL(join(ROOT, 'tracker-utils.mjs')).href);
+  const { normalizeStatus: cadenceNorm } = await import(pathToFileURL(join(ROOT, 'followup-cadence.mjs')).href);
+  const states = loadCanonicalStates(join(ROOT, 'templates', 'states.yml'));
+
+  // The fold must not be able to collapse two different states: no canonical
+  // id/label/alias may itself contain U+0307.
+  const marked = [];
+  for (const st of states) {
+    for (const v of [st.id, st.label, ...st.aliases]) {
+      if (String(v).normalize('NFD').includes('\u0307')) marked.push(`${st.id}:${v}`);
+    }
+  }
+  marked.length === 0
+    ? pass('no canonical state value carries U+0307, so the fold cannot merge two states (#2704)')
+    : fail(`a canonical value contains U+0307 — folding it could collapse states: ${marked.join(', ')}`);
+
+  // Every value, in every casing a user can produce, resolves to its own state.
+  const misses = [];
+  for (const st of states) {
+    for (const v of [st.id, st.label, ...st.aliases]) {
+      for (const typed of [String(v), String(v).toLocaleUpperCase('tr'), String(v).toUpperCase()]) {
+        if (cadenceNorm(typed) !== st.id) misses.push(`${JSON.stringify(typed)}->${cadenceNorm(typed)} (want ${st.id})`);
+      }
+    }
+  }
+  misses.length === 0
+    ? pass('every state resolves from its as-written, Turkish-uppercase and plain-uppercase spellings (#2704)')
+    : fail(`${misses.length} spelling(s) do not resolve: ${misses.slice(0, 6).join(', ')}`);
+
+  // The specific reproductions from the review.
+  const cases = [['TEKLİF', 'offer'], ['DEĞERLENDİRİLDİ', 'evaluated'], ['KABUL EDİLDİ', 'hired'], ['İŞE ALINDI', 'hired']];
+  const wrong = cases.filter(([raw, want]) => cadenceNorm(raw) !== want);
+  wrong.length === 0
+    ? pass('the all-caps Turkish cases from the #2704 review resolve correctly')
+    : fail(`all-caps Turkish still failing: ${wrong.map(([r, w]) => `${r}->${cadenceNorm(r)} (want ${w})`).join(', ')}`);
+
+  foldStatusInput('TEKLİF') === 'teklif'
+    ? pass('foldStatusInput strips the combining dot JS introduces (#2704)')
+    : fail(`foldStatusInput('TEKLİF') = ${JSON.stringify(foldStatusInput('TEKLİF'))}, expected "teklif"`);
+} catch (e) {
+  fail(`Turkish casing guard crashed: ${e.message}`);
+}
+
 // ── MERGE-TRACKER: DISTINCT NON-LATIN COMPANIES (#2429) ───────────
 // Sibling of the #1603 via guard, one column over. normalizeCompany() stripped
 // [^a-z0-9], so EVERY non-Latin company name folded to '' and compared equal to

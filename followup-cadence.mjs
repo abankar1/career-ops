@@ -15,7 +15,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as yaml from 'js-yaml';
-import { loadCanonicalStates } from './tracker-utils.mjs';
+import { loadCanonicalStates, foldStatusInput } from './tracker-utils.mjs';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
@@ -106,9 +106,9 @@ function statusAliasMap() {
   try {
     for (const st of loadCanonicalStates(join(CAREER_OPS, 'templates', 'states.yml'))) {
       const id = st.id.toLowerCase();
-      map.set(id, id);
-      if (st.label) map.set(st.label.toLowerCase(), id);
-      for (const a of st.aliases) map.set(String(a).toLowerCase(), id);
+      map.set(foldStatusInput(id), id);
+      if (st.label) map.set(foldStatusInput(st.label), id);
+      for (const a of st.aliases) map.set(foldStatusInput(a), id);
     }
   } catch {
     // A missing/malformed states.yml is a broken install. Degrade to
@@ -122,8 +122,10 @@ function statusAliasMap() {
 const ACTIONABLE_STATUSES = ['applied', 'responded', 'interview'];
 
 export function normalizeStatus(raw) {
-  const clean = raw.replace(/\*\*/g, '').trim().toLowerCase()
-    .replace(/\s+\d{4}-\d{2}-\d{2}.*$/, '').trim();
+  // foldStatusInput, not a bare toLowerCase: JS lowercases the Turkish dotted
+  // capital `İ` to `i` + U+0307 and the mark survives, so every all-caps
+  // Turkish row missed every alias (#2704 review).
+  const clean = foldStatusInput(String(raw).replace(/\s+\d{4}-\d{2}-\d{2}.*$/, ''));
   return statusAliasMap().get(clean) || clean;
 }
 

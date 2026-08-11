@@ -57,6 +57,6 @@ states:
 
   - id: hired
     label: Hired
-    aliases: [contratado, contratada, hired, accepted, accept, "kabul edildi", kabul_edildi, "işe alındı", "ise alindi"]
+    aliases: [contratado, contratada, hired, accepted, accept, "kabul edildi", kabul_edildi, "işe alındı", "ise alindi", "işe alindi"]
     description: Offer accepted, job landed!
     dashboard_group: hired

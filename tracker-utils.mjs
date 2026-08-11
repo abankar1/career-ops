@@ -559,8 +559,37 @@ export function loadCanonicalStates(statesPath) {
  * @param {{id:string,label:string,aliases:string[]}[]} states - From loadCanonicalStates().
  * @returns {string|null} Canonical label (e.g. "Applied"), or null when unknown.
  */
+/**
+ * Case-fold a status the way a HUMAN typed it, not the way JS lowercases it.
+ *
+ * JavaScript lowercases the Turkish dotted capital `İ` (U+0130) to `i` plus a
+ * COMBINING DOT ABOVE (U+0307), and the mark survives — so `TEKLİF` becomes
+ * `tekli\u0307f`, which equals no alias anyone would ever write. Turkish
+ * uppercase status words are ordinary, so every all-caps Turkish row missed.
+ *
+ * Dropping U+0307 after lowercasing repairs it for every alias at once, rather
+ * than listing the ~32 mark-bearing spellings the aliases would otherwise need
+ * — a list that would also have to carry `ski\u0307p` and `hi\u0307red`, and that
+ * would silently need extending on every future alias containing an `i`.
+ *
+ * No canonical state, label or alias legitimately contains U+0307, so this
+ * cannot collapse two different states together (asserted in test-all).
+ *
+ * @param {*} input - Raw status text.
+ * @returns {string} Lowercased, mark-folded, bold/whitespace-stripped status.
+ */
+export function foldStatusInput(input) {
+  return String(input ?? '')
+    .replace(/\*\*/g, '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\u0307/g, '')
+    .normalize('NFC');
+}
+
 export function resolveCanonicalState(input, states) {
-  const clean = String(input ?? '').replace(/\*\*/g, '').trim().toLowerCase();
+  const clean = foldStatusInput(input);
   if (!clean) return null;
   for (const s of states) {
     if (s.label.toLowerCase() === clean) return s.label;
