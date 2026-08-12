@@ -9764,6 +9764,30 @@ try {
     ? pass('the all-caps Turkish cases from the #2704 review resolve correctly')
     : fail(`all-caps Turkish still failing: ${wrong.map(([r, w]) => `${r}->${cadenceNorm(r)} (want ${w})`).join(', ')}`);
 
+  // PAIR SEMANTICS, not implementation. The assertions above prove the fold
+  // repairs Turkish; they say nothing about what else it reaches. 462d2765
+  // shipped this same fold as NFD -> strip -> NFC on the company key, which
+  // also decomposed the PRECOMPOSED dots of z-dot, e-dot and g-dot and
+  // collapsed Zubr/Zubr, Eme/Eme and Generali/Generali -- Polish, Lithuanian
+  // and Maltese losing a distinction with every existing test still green
+  // (undone in 5df43e7). The status fold carried the identical defect; these
+  // pin the OUTCOME rather than the implementation.
+  {
+    const pairs = [
+      ['TEKL\u0130F', 'teklif', true, 'Turkish dotted capital: the dot is a casing artifact'],
+      ['KABUL ED\u0130LD\u0130', 'kabul edildi', true, 'same artifact, multi-word'],
+      ['\u017Bubr', 'Zubr', false, 'Polish z-dot: the dot is a letter the user typed'],
+      ['\u0116m\u0117', 'Eme', false, 'Lithuanian e-dot: same class'],
+      ['\u0120enerali', 'Generali', false, 'Maltese g-dot'],
+      ['\u0160koda', 'Skoda', false, 'caron typed by the user'],
+      ['Nestl\u00E9', 'Nestle', false, 'accent typed by the user'],
+    ];
+    const wrong = pairs.filter(([a, b, mustMatch]) => (foldStatusInput(a) === foldStatusInput(b)) !== mustMatch);
+    wrong.length === 0
+      ? pass('foldStatusInput folds the casing artifact only - typed dots and accents still separate (#2704)')
+      : fail(`foldStatusInput pair semantics wrong: ${wrong.map(([a, b, m]) => `${a}/${b} expected ${m ? 'match' : 'differ'}`).join('; ')}`);
+  }
+
   foldStatusInput('TEKLİF') === 'teklif'
     ? pass('foldStatusInput strips the combining dot JS introduces (#2704)')
     : fail(`foldStatusInput('TEKLİF') = ${JSON.stringify(foldStatusInput('TEKLİF'))}, expected "teklif"`);

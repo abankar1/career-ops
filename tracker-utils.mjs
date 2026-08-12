@@ -567,7 +567,7 @@ export function loadCanonicalStates(statesPath) {
  * `tekli\u0307f`, which equals no alias anyone would ever write. Turkish
  * uppercase status words are ordinary, so every all-caps Turkish row missed.
  *
- * Dropping U+0307 after lowercasing repairs it for every alias at once, rather
+ * Dropping U+0307 after an NFKC lowercase repairs it for every alias at once, rather
  * than listing the ~32 mark-bearing spellings the aliases would otherwise need
  * — a list that would also have to carry `ski\u0307p` and `hi\u0307red`, and that
  * would silently need extending on every future alias containing an `i`.
@@ -582,10 +582,15 @@ export function foldStatusInput(input) {
   return String(input ?? '')
     .replace(/\*\*/g, '')
     .trim()
+    .normalize('NFKC')
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/\u0307/g, '')
-    .normalize('NFC');
+    // NO `NFD`, for the same structural reason normalizeTextKey documents:
+    // NFKC leaves ż, ė and ġ as SINGLE precomposed code points so this strip
+    // cannot reach their dots, while `i` + U+0307 (what lowercasing `İ`
+    // produces) has no precomposed form and stays exposed. Decomposing first
+    // looks equivalent and is not — it collapses Żubr/Zubr, Ėmė/Eme and
+    // Ġenerali/Generali, which is what 5df43e7 had to undo on the company key.
+    .replace(/\u0307/gu, '');
 }
 
 export function resolveCanonicalState(input, states) {
