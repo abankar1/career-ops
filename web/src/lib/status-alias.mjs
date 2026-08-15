@@ -8,41 +8,84 @@
 // node-free on purpose — it is imported by client components, so it cannot
 // touch fs at runtime. The map has to ship in the bundle as data.
 //
-// Moved here verbatim; the alias list is unchanged by this commit.
+// Kept honest by tests/lib/status-alias.test.mjs, which loads states.yml and
+// asserts every alias in it resolves here. A copy with nothing checking it is
+// what #2249 fixed by hand for `Hired` and what drifted again as #2917.
+//
+// Entries marked `web-only` have no counterpart in states.yml; they predate it
+// and are kept so this cannot regress an existing tracker. The sync is
+// one-directional: states.yml is a floor, not a cap.
 
 /** @type {Record<string, string>} */
 export const STATUS_ALIAS = {
+  // Evaluated — states.yml `evaluated`
   evaluada: "EVALUATED",
-  evaluado: "EVALUATED",
   condicional: "EVALUATED",
   hold: "EVALUATED",
   evaluar: "EVALUATED",
   verificar: "EVALUATED",
-  aplicada: "APPLIED",
+  "değerlendirildi": "EVALUATED",
+  degerlendirildi: "EVALUATED",
+  evaluado: "EVALUATED", // web-only: not in states.yml
+  // Applied — states.yml `applied`
   aplicado: "APPLIED",
   enviada: "APPLIED",
+  aplicada: "APPLIED",
   sent: "APPLIED",
-  respondida: "RESPONDED",
+  "başvuruldu": "APPLIED",
+  basvuruldu: "APPLIED",
+  // Responded — states.yml `responded`
   respondido: "RESPONDED",
-  contestada: "RESPONDED",
+  "yanıt verildi": "RESPONDED",
+  "yanıt_verildi": "RESPONDED",
+  "yanit verildi": "RESPONDED",
+  yanit_verildi: "RESPONDED",
+  respondida: "RESPONDED", // web-only: not in states.yml
+  contestada: "RESPONDED", // web-only: not in states.yml
+  // Interview — states.yml `interview`
   entrevista: "INTERVIEW",
+  "mülakat": "INTERVIEW",
+  mulakat: "INTERVIEW",
+  // Offer — states.yml `offer`
   oferta: "OFFER",
-  rechazada: "REJECTED",
+  teklif: "OFFER",
+  // Rejected — states.yml `rejected`
   rechazado: "REJECTED",
-  descartada: "DISCARDED",
+  rechazada: "REJECTED",
+  reddedildi: "REJECTED",
+  // Discarded — states.yml `discarded`
   descartado: "DISCARDED",
+  descartada: "DISCARDED",
   cerrada: "DISCARDED",
   cancelada: "DISCARDED",
-  duplicado: "DISCARDED",
-  repost: "DISCARDED",
-  monitor: "SKIP",
+  "iptal edildi": "DISCARDED",
+  iptal_edildi: "DISCARDED",
+  "ıptal edildi": "DISCARDED",
+  "ıptal_edildi": "DISCARDED",
+  duplicado: "DISCARDED", // web-only: not in states.yml
+  repost: "DISCARDED", // web-only: not in states.yml
+  // SKIP — states.yml `skip`
   no_aplicar: "SKIP",
   "no aplicar": "SKIP",
-  // Hired — terminal success (offer accepted), added to states.yml in #2050.
+  skip: "SKIP",
+  monitor: "SKIP",
+  "geo blocker": "SKIP",
+  geo_blocker: "SKIP",
+  "uygun değil": "SKIP",
+  "uygun_değil": "SKIP",
+  "uygun degil": "SKIP",
+  uygun_degil: "SKIP",
+  // Hired — states.yml `hired`
   contratado: "HIRED",
   contratada: "HIRED",
+  hired: "HIRED",
   accepted: "HIRED",
   accept: "HIRED",
+  "kabul edildi": "HIRED",
+  kabul_edildi: "HIRED",
+  "işe alındı": "HIRED",
+  "ise alindi": "HIRED",
+  "işe alindi": "HIRED",
 };
 
 /**
