@@ -89,6 +89,34 @@ export const STATUS_ALIAS = {
 };
 
 /**
+ * Fold raw status text to a lookup key.
+ *
+ * Mirrors foldStatusInput() in tracker-utils.mjs (#2705). The `\u0307` strip is
+ * what makes a capitalised Turkish status resolve: JS lowercases `İ` to `i` +
+ * U+0307 COMBINING DOT ABOVE, so "İşe alındı" keys as "i̇şe alındı" and misses
+ * the "işe alındı" entry. Real tracker rows are capitalised, so without this
+ * the alias table is only reachable by input that is already lowercase.
+ *
+ * NFKC and NOT NFD, deliberately: NFD decomposes precomposed letters too, so
+ * the same strip would reach the dots of ż / ė / ġ and collapse Żubr onto
+ * Zubr, Ėmė onto Eme, Ġenerali onto Generali.
+ *
+ * Markdown bold is stripped because AGENTS.md forbids it in the status field —
+ * which is exactly why it turns up there.
+ *
+ * @param {string} s - Raw status text from the tracker.
+ * @returns {string} Lookup key.
+ */
+function foldStatus(s) {
+  return String(s ?? "")
+    .replace(/\*\*/g, "")
+    .trim()
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\u0307/gu, "");
+}
+
+/**
  * Normalize a raw tracker status to a canonical stage token.
  *
  * Unknown input is passed through uppercased rather than rejected, so a status
@@ -100,7 +128,7 @@ export const STATUS_ALIAS = {
  * @returns {string} Canonical stage token, or the uppercased input.
  */
 export function canonStatus(s) {
-  const k = String(s ?? "").trim().toLowerCase();
+  const k = foldStatus(s);
   if (k === "" || k === "—" || k === "-") return "DISCARDED";
   return STATUS_ALIAS[k] ?? String(s ?? "").toUpperCase();
 }

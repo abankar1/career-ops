@@ -24,7 +24,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import yaml from "js-yaml";
+// Namespace import, not default: js-yaml has no default export (test-all.mjs
+// enforces this — a default import breaks on js-yaml 5).
+import * as yaml from "js-yaml";
 import { STATUS_ALIAS, canonStatus } from "../../src/lib/status-alias.mjs";
 
 const states = yaml.load(
@@ -79,4 +81,39 @@ test("aliases states.yml does not list are still honoured", () => {
 
 test("empty and placeholder statuses are Discarded, not a crash", () => {
   for (const blank of ["", "   ", "—", "-"]) assert.equal(canonStatus(blank), "DISCARDED");
+});
+
+// The drift test above feeds aliases exactly as states.yml spells them, which
+// is lowercase — so it cannot see a folding bug. A real tracker row is
+// capitalised, and that is where the Turkish dotted capital breaks: JS
+// lowercases "İ" to "i" + U+0307, so "İşe alındı" keys as "i̇şe alındı" and
+// misses the "işe alındı" entry however complete the map is.
+test("a capitalised status resolves, including Turkish dotted İ", () => {
+  for (const [input, canon] of [
+    ["İşe alındı", "HIRED"],
+    ["Mülakat", "INTERVIEW"],
+    ["Teklif", "OFFER"],
+    ["Değerlendirildi", "EVALUATED"],
+    ["Başvuruldu", "APPLIED"],
+    ["Uygun değil", "SKIP"],
+    ["Reddedildi", "REJECTED"],
+    ["Entrevista", "INTERVIEW"],
+  ]) {
+    assert.equal(canonStatus(input), canon, `${input} did not resolve to ${canon}`);
+  }
+});
+
+test("the İ fold does not reach other languages' dots", () => {
+  // Why the fold is NFKC and not NFD: NFD decomposes precomposed letters too,
+  // so stripping U+0307 afterwards would eat the dot of ż / ė / ġ and collapse
+  // these onto Zubr / Eme / Generali. None is a status, so each must simply
+  // pass through unrecognised rather than silently become a different word.
+  for (const name of ["Żubr", "Ėmė", "Ġenerali"]) {
+    assert.equal(canonStatus(name), name.toUpperCase(), `${name} was over-folded`);
+  }
+});
+
+test("a bolded alias resolves — AGENTS.md forbids bold, so it turns up", () => {
+  assert.equal(canonStatus("**Oferta**"), "OFFER");
+  assert.equal(canonStatus("**Mülakat**"), "INTERVIEW");
 });
