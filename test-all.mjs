@@ -4614,6 +4614,14 @@ try {
     ['Nestlé', 'nestle'],
     ['Ørsted', 'orsted'],   // ø does not decompose under NFD
     ['Æon', 'aeon'],        // æ expands to two letters
+    // Letters NFD does not decompose: the stroke/bar is part of the glyph, so
+    // stripping combining marks leaves them and [^a-z0-9] deletes them
+    // (CodeRabbit, reviewing #2927). No substring luck here — "Işık" derived
+    // "isk" and never "isik", so --add probed a slug no board uses.
+    ['Işık', 'isik'],       // Turkish dotless ı
+    ['Ħamrun', 'hamrun'],   // Maltese ħ
+    ['Ŧorne', 'torne'],     // ŧ
+    ['Ŋaro', 'ngaro'],      // ŋ romanises as "ng", not "n"
   ];
   const missedFold = accented.filter(([name, want]) => !deriveSlugCandidates(name).includes(want));
   if (missedFold.length === 0) {
