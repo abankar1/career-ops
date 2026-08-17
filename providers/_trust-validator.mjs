@@ -104,9 +104,19 @@ export function matchesDomainList(hostname, domainList) {
 
 // Latin letters that do NOT decompose under NFD, so stripping combining marks
 // alone still deletes them. Lowercase only — the caller lowercases first.
+// A stroke or bar through a letter is part of the glyph, not a combining
+// mark, so NFD leaves these untouched and the [^a-z0-9] strip below then
+// DELETES them — the very failure this fold exists to stop. The Turkish
+// dotless ı is the one that actually bites: "Işık" scored no match against
+// isik.com.tr and was flagged for being on its own domain. ħ/ŋ/ŧ happened to
+// pass anyway on a word-level substring, which is luck, not correctness —
+// the same accidental pass "Nestlé" had before this fold existed.
+// (CodeRabbit, reviewing #2927.)
 const NON_DECOMPOSING_LATIN = [
   [/ø/g, 'o'], [/æ/g, 'ae'], [/œ/g, 'oe'], [/ß/g, 'ss'],
   [/đ/g, 'd'], [/ł/g, 'l'], [/þ/g, 'th'], [/ð/g, 'd'],
+  [/ħ/g, 'h'], [/ı/g, 'i'], [/ŋ/g, 'ng'], [/ŧ/g, 't'],
+  [/ĸ/g, 'k'], [/ſ/g, 's'],
 ];
 
 /**

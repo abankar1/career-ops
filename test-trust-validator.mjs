@@ -153,6 +153,19 @@ assert(companyMatchesHostname('Nestlé', 'www.nestle.com') === true, 'Nestlé ma
 assert(companyMatchesHostname('Ørsted', 'orsted.com') === true, 'Ørsted: ø folds to o');
 assert(companyMatchesHostname('Æon', 'aeon.co.jp') === true, 'Æon: æ folds to ae');
 
+// Letters NFD does NOT decompose: a stroke or bar is part of the glyph, not a
+// combining mark, so stripping marks leaves them and [^a-z0-9] then deletes
+// them (CodeRabbit, reviewing #2927). The Turkish dotless ı is the one that
+// actually bit — "Işık" scored no match against its own isik.com.tr.
+assert(companyMatchesHostname('Işık', 'isik.com.tr') === true, 'Işık: dotless ı folds to i');
+assert(companyMatchesHostname('Ħamrun', 'hamrun.com.mt') === true, 'Ħamrun: ħ folds to h');
+assert(companyMatchesHostname('Ŧorne', 'torne.example') === true, 'Ŧorne: ŧ folds to t');
+// ŋ (eng) romanises as "ng", not "n" — mapping it to "n" made "Ŋaro" miss
+// ngaro.example, which is how this mapping got caught.
+assert(companyMatchesHostname('Ŋaro', 'ngaro.example') === true, 'Ŋaro: ŋ folds to ng');
+// Still a mismatch on a hostile host — the fold must not become "always true".
+assert(companyMatchesHostname('Işık', 'evil-phishing.example') === false, 'Işık still flags a hostile host');
+
 // The fold must not turn the check into "always true" — a hostile host is
 // still a mismatch. Without these, deleting the function body would pass.
 assert(companyMatchesHostname('Société Générale', 'evil-phishing.example') === false, 'accented name still flags a hostile host');
