@@ -23,11 +23,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localToday } from '../lib/local-today.mjs';
 import { shouldDedupScanHistoryRow } from '../scan.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+// A module path embedded in a child script must be a file:// URL. On Windows a
+// bare join() yields `D:\a\career-ops\...`, which is neither a valid ESM
+// specifier nor safe inside a quoted JS string — the backslashes read as escape
+// sequences. POSIX absolute paths happen to work, which is why this only ever
+// reddens on the Windows leg.
+const spec = (rel) => pathToFileURL(join(ROOT, rel)).href;
 
 // 01:30 UTC: still the previous day everywhere west of Greenwich.
 const INSTANT = '2026-08-18T01:30:00Z';
@@ -85,7 +92,7 @@ test('the premise: at this instant the UTC day is tomorrow in New York', () => {
 
 test('localToday resolves the local day, not the UTC one', () => {
   const out = inFrozenTz('America/New_York',
-    `import {localToday} from '${join(ROOT, 'lib/local-today.mjs')}';` +
+    `import {localToday} from '${spec('lib/local-today.mjs')}';` +
     `const i=new Date('${INSTANT}');` +
     `process.stdout.write(localToday(i)+' '+i.toISOString().slice(0,10));`);
   assert.equal(out, `${NY_DAY} ${UTC_DAY}`);
@@ -114,7 +121,7 @@ test("scan's DEFAULT today is the local day, so a cooldown holds", () => {
   // still the day before, so the default must keep the posting silenced —
   // resolving the default as the UTC day opened it a day early.
   const out = inFrozenTz('America/New_York',
-    `const {shouldDedupScanHistoryRow} = await import('${join(ROOT, 'scan.mjs')}');` +
+    `const {shouldDedupScanHistoryRow} = await import('${spec('scan.mjs')}');` +
     `const held = shouldDedupScanHistoryRow({firstSeen:'2026-01-01',status:'cooldown:${UTC_DAY}'});` +
     `process.stdout.write(String(held));`);
   assert.equal(out, 'true', 'the default today opened the cooldown a day early');
@@ -124,7 +131,7 @@ test('company-history today() is the local calendar day at UTC midnight', () => 
   // The UTC-midnight ANCHOR is deliberate and must survive; only WHICH day
   // moves. #2765 drew the same line, so both halves are asserted.
   const out = inFrozenTz('America/New_York',
-    `const {today} = await import('${join(ROOT, 'company-history.mjs')}');` +
+    `const {today} = await import('${spec('company-history.mjs')}');` +
     `process.stdout.write(today().toISOString());`);
   assert.equal(out.slice(0, 10), NY_DAY, `today() returned the UTC day (${out.slice(0, 10)}), not the local one`);
   assert.equal(out.slice(10), 'T00:00:00.000Z', 'the UTC-midnight anchor was lost');
