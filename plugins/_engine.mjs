@@ -24,7 +24,7 @@
  * all reuse it with no prod-vs-test drift.
  */
 
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { resolveAndValidate } from './_net.mjs';
@@ -254,7 +254,27 @@ export function discoverPlugins(roots, overrideIds = new Set()) {
       continue;
     }
     const dirs = entries
-      .filter(e => e.isDirectory() && !e.name.startsWith('_') && !e.name.startsWith('.'))
+      .filter(e => !e.name.startsWith('_') && !e.name.startsWith('.'))
+      // readdirSync(withFileTypes) does NOT follow links, so a symlinked
+      // plugin directory reports isDirectory() === false and was dropped here
+      // — before the manifest was read and before warnSkip() could fire, so
+      // the plugin simply never appeared and nothing said why (#3140).
+      // plugins.local/ exists so a developer can work from their own checkout,
+      // and symlinking it in is the natural way to do that.
+      //
+      // statSync FOLLOWS the link, which is the question being asked: does
+      // this entry lead to a directory? Wrapped, because it throws on a
+      // dangling link — unguarded, one dead symlink would abort discovery for
+      // EVERY plugin in the root rather than skipping the one that is broken.
+      .filter((e) => {
+        if (e.isDirectory()) return true;
+        if (!e.isSymbolicLink()) return false;
+        try {
+          return statSync(path.join(root, e.name)).isDirectory();
+        } catch {
+          return false; // dangling or unreadable link — skip it, keep the rest
+        }
+      })
       .map(e => e.name)
       .sort();
     for (const name of dirs) {
