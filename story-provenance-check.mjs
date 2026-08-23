@@ -352,20 +352,36 @@ function buildCvNumberContexts(cvText) {
  * @param {number} windowChars
  * @returns {string[]}
  */
-function contextWords(body, matchIndex, matchLength, windowChars = 90) {
-  const start = Math.max(0, matchIndex - windowChars);
-  const end = Math.min(body.length, matchIndex + matchLength + windowChars);
-  const snippet = body
-    .slice(start, end)
-    // NFKC before the strip so a full-width "４０％" keys like "40%", the same
+/**
+ * NFKC, lowercased, with the combining dot a lowercased Turkish `İ` leaves
+ * behind removed.
+ *
+ * Extracted so the two sides of every comparison below are folded IDENTICALLY.
+ * contextWords() folds the claim window; hasContextOverlap() searches cv.md.
+ * Folding only one of them is a bug that hides: a cv.md written "İstanbul"
+ * lowercases to `i` + U+0307 and stops matching a claim word the strip has
+ * already reduced to plain "istanbul".
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function foldForContext(text) {
+  return String(text ?? '')
+    // NFKC before the strip so a full-width "４０％" folds like "40%", the same
     // normalization order normalizeTextKey uses.
     .normalize('NFKC')
     .toLowerCase()
     // Lowercasing a Turkish dotted capital leaves a bare combining dot
-    // (U+0307) behind, and \p{M} below would keep it — so "İstanbul" and
-    // "Istanbul" would not compare equal. Same one-character strip, and the
-    // same reason, as normalizeTextKey's.
-    .replace(/\u0307/gu, '')
+    // (U+0307) behind, and \p{M} in the strip below keeps it — so "İstanbul"
+    // and "Istanbul" would not compare equal. Same one-character strip, and
+    // the same reason, as normalizeTextKey's.
+    .replace(/\u0307/gu, '');
+}
+
+function contextWords(body, matchIndex, matchLength, windowChars = 90) {
+  const start = Math.max(0, matchIndex - windowChars);
+  const end = Math.min(body.length, matchIndex + matchLength + windowChars);
+  const snippet = foldForContext(body.slice(start, end))
     .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ');
   const words = snippet.split(/\s+/).filter(Boolean);
   // `\p{N}` not `\d`: a token of Devanagari or full-width digits is just as
@@ -374,13 +390,36 @@ function contextWords(body, matchIndex, matchLength, windowChars = 90) {
 }
 
 /**
- * Whether any context word appears (word-boundary, case-insensitive) in cv.md prose.
- * @param {string[]} words
- * @param {string} cvTextLower
+ * Whether any context word appears, on a word boundary, in cv.md prose.
+ *
+ * The boundary is a lookaround pair, not `\b`. `\b` is defined against `\w`,
+ * which is `[A-Za-z0-9_]` — so for a Cyrillic, Greek, Hebrew, Arabic or CJK
+ * word BOTH sides of every edge are non-word characters and the assertion is
+ * never satisfied:
+ *
+ *   /\bсократил\b/i.test('сократил расходы')   ->  false
+ *
+ * That made this the second half of the same defect as the ASCII strip in
+ * contextWords: even once the words survive folding, they could never be found
+ * in cv.md, so `supportedByResume` stayed unreachable for a non-Latin CV and
+ * every claim still fell to `derived-unverified`.
+ *
+ * Mirrors the `bounded()` helper scan.mjs already uses for company names, down
+ * to its escape set — `\-` is an invalid identity escape under `u`. Both
+ * operands here are folded output (letters, marks, digits and spaces only), so
+ * the escape is defensive rather than load-bearing.
+ *
+ * @param {string[]} words - Claim context words, already folded.
+ * @param {string} cvText - Raw cv.md; folded here so both sides match.
  * @returns {boolean}
  */
-function hasContextOverlap(words, cvTextLower) {
-  return words.some((w) => new RegExp(`\\b${w}\\b`, 'i').test(cvTextLower));
+function hasContextOverlap(words, cvText) {
+  const haystack = foldForContext(cvText);
+  const bounded = (w) => new RegExp(
+    `(?<![\\p{L}\\p{M}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{M}\\p{N}])`,
+    'u',
+  );
+  return words.some((w) => bounded(w).test(haystack));
 }
 
 /**
@@ -409,7 +448,6 @@ const USER_STATED_RE = /^user-stated\s+\d{4}-\d{2}-\d{2}$/;
  */
 function classifyStoryBank(storyBankText, cvText) {
   const cvNumberContexts = buildCvNumberContexts(cvText);
-  const cvTextLower = cvText.toLowerCase();
   const stories = parseStoryBlocks(storyBankText);
 
   const buckets = { existing: [], supportedByResume: [], derivedUnverified: [], userCannotConfirm: [] };
@@ -464,7 +502,7 @@ function classifyStoryBank(storyBankText, cvText) {
         continue;
       }
 
-      if (hasContextOverlap(claimWords, cvTextLower)) {
+      if (hasContextOverlap(claimWords, cvText)) {
         buckets.supportedByResume.push({ ...entry, contextWords: claimWords });
         continue;
       }
