@@ -314,6 +314,38 @@ function buildCvNumberContexts(cvText) {
  * Content words (length >= 4, not a stopword, not itself a number) in a
  * window around a claim's position — the signal used for the
  * `supportedByResume` heuristic.
+ *
+ * The strip keeps letters, combining marks and digits of ANY script. It used
+ * to be `[^a-z0-9\s]`, which deletes every non-ASCII letter, and that broke
+ * this checker in both directions on a CV that is not written in ASCII:
+ *
+ *   - Cyrillic, Greek, Hebrew, Arabic, CJK — every character is stripped, the
+ *     window yields NO words at all, and an empty list makes both
+ *     hasScopedNumberMatch (`claimWords.includes`) and hasContextOverlap
+ *     (`words.some`) unconditionally false. So `existing` and
+ *     `supportedByResume` are unreachable and every claim the patterns do
+ *     extract lands in `derived-unverified` — including a figure sitting
+ *     verbatim in cv.md with matching context.
+ *   - Accented Latin — the strip does not just delete, it re-cuts the word:
+ *     "évaluation" becomes " valuation", a DIFFERENT real English word that
+ *     can then overlap cv.md prose that has nothing to do with the claim.
+ *     Shorter words vanish outright ("Größe", "naïve", "señor" all fall under
+ *     the length floor once split).
+ *
+ * That matters more here than in a grouping key. `derived-unverified` is what
+ * AGENTS.md's "Confirmation UX invariant" hands to the user to confirm or
+ * deny, and its stated risk is that a confirmed guess launders a guess into a
+ * verified fact. A checker that reports 100% unverified for a non-ASCII CV
+ * hands over a list where every entry is noise, which is how a user learns to
+ * confirm without reading.
+ *
+ * `\p{L}\p{M}\p{N}` is the alphabet tracker-parse.mjs's normalizeTextKey
+ * settled on for exactly this class of bug (#2393/#2429/#2569/#2666), down to
+ * keeping \p{M} so Indic matras survive. It is mirrored rather than imported:
+ * normalizeTextKey builds a solid identity KEY and this needs word boundaries
+ * preserved, and importing tracker-parse.mjs would make a story-bank check
+ * fail hard on a missing tracker-aliases.json it has no other use for.
+ *
  * @param {string} body
  * @param {number} matchIndex
  * @param {number} matchLength
@@ -323,9 +355,22 @@ function buildCvNumberContexts(cvText) {
 function contextWords(body, matchIndex, matchLength, windowChars = 90) {
   const start = Math.max(0, matchIndex - windowChars);
   const end = Math.min(body.length, matchIndex + matchLength + windowChars);
-  const snippet = body.slice(start, end).toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+  const snippet = body
+    .slice(start, end)
+    // NFKC before the strip so a full-width "４０％" keys like "40%", the same
+    // normalization order normalizeTextKey uses.
+    .normalize('NFKC')
+    .toLowerCase()
+    // Lowercasing a Turkish dotted capital leaves a bare combining dot
+    // (U+0307) behind, and \p{M} below would keep it — so "İstanbul" and
+    // "Istanbul" would not compare equal. Same one-character strip, and the
+    // same reason, as normalizeTextKey's.
+    .replace(/\u0307/gu, '')
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ');
   const words = snippet.split(/\s+/).filter(Boolean);
-  return [...new Set(words.filter((w) => w.length >= 4 && !STOPWORDS.has(w) && !/^\d+$/.test(w)))];
+  // `\p{N}` not `\d`: a token of Devanagari or full-width digits is just as
+  // much "a number, not a content word" as an ASCII one.
+  return [...new Set(words.filter((w) => w.length >= 4 && !STOPWORDS.has(w) && !/^\p{N}+$/u.test(w)))];
 }
 
 /**
