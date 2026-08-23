@@ -81,6 +81,59 @@ test('an accented word is no longer re-cut into a different real word', () => {
   assert.equal(verdict(story, cv), 'derivedUnverified');
 });
 
+// ── supportedByResume: the second half of the same defect ─────────────
+//
+// hasContextOverlap searched cv.md with `\b${word}\b`, and `\b` is defined
+// against `\w` = [A-Za-z0-9_]. For a Cyrillic or Greek word BOTH sides of every
+// edge are non-word characters, so the assertion is never satisfied:
+//
+//   /\bсократил\b/i.test('сократил расходы')  ->  false
+//
+// Keeping the letters through the strip therefore was not enough on its own —
+// they still could not be FOUND in cv.md, so this bucket stayed unreachable and
+// every claim fell to derived-unverified anyway.
+
+test('a Cyrillic claim cv.md supports but does not quantify is supportedByResume', () => {
+  // The NUMBER is absent from cv.md, so `existing` is correctly out of reach.
+  // The surrounding fact is there, which is exactly what this bucket means.
+  const cv = '# Иван Петров\n\n- Отвечал за сокращение расходов на инфраструктуру платформы.';
+  const story = '### [Impact] Снижение затрат\n\n**Result:** Сократил расходы на инфраструктуру на 40%.';
+
+  assert.equal(verdict(story, cv), 'supportedByResume');
+});
+
+test('a Greek claim cv.md supports but does not quantify is supportedByResume', () => {
+  const cv = '# Βιογραφικό\n\n- Υπεύθυνος για τη μείωση του κόστους υποδομής.';
+  const story = '### [Impact] Μείωση κόστους\n\n**Result:** Μείωσε το κόστος υποδομής κατά 40%.';
+
+  assert.equal(verdict(story, cv), 'supportedByResume');
+});
+
+test('the boundary is still a boundary — a substring does not count as overlap', () => {
+  // The replacement must not become a bare `includes`. "расход" sits inside
+  // "расходами" in the story window; cv.md carries only the longer form in an
+  // unrelated sentence, so there is no whole-word overlap and nothing else to
+  // match on.
+  const cv = '# CV\n\n- Разработал внутренние инструменты для отдела продаж.';
+  const story = '### [Impact] Затраты\n\n**Result:** Управлял расходами и снизил их на 40%.';
+
+  assert.equal(verdict(story, cv), 'derivedUnverified');
+});
+
+test('a Turkish dotted capital in cv.md still matches a claim word', () => {
+  // Both sides have to be folded the SAME way. cv.md lowercases "İstanbul" to
+  // `i` + U+0307, and the claim window has already had that dot stripped — so
+  // folding only the claim side leaves them unequal.
+  //
+  // Every other content word is disjoint on purpose, so "istanbul" is the ONLY
+  // thing that can produce the overlap — otherwise an ASCII word carries the
+  // test and the fold is never exercised.
+  const cv = '# CV\n\n- İstanbul biriminde görev aldı.';
+  const story = '### [Impact] Tasarruf\n\n**Result:** Istanbul genelinde 40% tasarruf sağlandı.';
+
+  assert.equal(verdict(story, cv), 'supportedByResume');
+});
+
 // ── The ASCII path is untouched ───────────────────────────────────────
 
 test('the English behaviour the checker shipped with is unchanged', () => {
