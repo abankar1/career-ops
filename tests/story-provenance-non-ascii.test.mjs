@@ -110,12 +110,12 @@ test('a Greek claim cv.md supports but does not quantify is supportedByResume', 
 });
 
 test('the boundary is still a boundary — a substring does not count as overlap', () => {
-  // The replacement must not become a bare `includes`. "расход" sits inside
-  // "расходами" in the story window; cv.md carries only the longer form in an
-  // unrelated sentence, so there is no whole-word overlap and nothing else to
-  // match on.
-  const cv = '# CV\n\n- Разработал внутренние инструменты для отдела продаж.';
-  const story = '### [Impact] Затраты\n\n**Result:** Управлял расходами и снизил их на 40%.';
+  // The replacement must not become a bare `includes`, so the fixture has to
+  // CONTAIN the substring case: the claim word "дизайн" sits inside cv.md's
+  // "редизайн", and nothing else is shared. A whole-word matcher finds no
+  // overlap; `includes` would return supportedByResume.
+  const cv = '# CV\n\n- Выполнил редизайн макета.';
+  const story = '### [Impact] Затраты\n\n**Result:** Создал дизайн и сократил расходы на 40%.';
 
   assert.equal(verdict(story, cv), 'derivedUnverified');
 });
