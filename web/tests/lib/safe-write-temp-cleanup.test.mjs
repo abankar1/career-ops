@@ -73,8 +73,30 @@ test("a failed write is rethrown, never swallowed", () => {
   // Cleaning up and returning normally would be worse than the leak: the route
   // answers 200 and the user believes their edit was saved.
   const body = atomicWriteBody();
-  const handler = body.slice(body.indexOf("catch", body.search(/renameSync\s*\(/)));
-  assert.match(handler, /\bthrow\b/, "the catch swallows the error — a lost write reads as a successful save");
+  const catchAt = body.indexOf("catch", body.search(/renameSync\s*\(/));
+  const binding = /catch\s*\(\s*([A-Za-z_$][\w$]*)/.exec(body.slice(catchAt))?.[1];
+  assert.ok(binding, "the write catch does not bind the error, so it cannot rethrow it");
+  assert.match(
+    body.slice(catchAt),
+    new RegExp(`\\bthrow\\s+${binding}\\b`),
+    "the catch does not rethrow the original error — a lost write reads as a successful save",
+  );
+});
+
+test("a cleanup failure cannot replace the error the caller needs", () => {
+  // `force: true` suppresses ENOENT and nothing else — not EPERM/EBUSY, which is
+  // the same contention that got us into this branch and can hold the temp file
+  // too. An unguarded rmSync would then surface a second-order complaint about a
+  // file the caller never asked about, in place of "rename failed: EPERM". The
+  // leaked copy is there either way; the diagnosis is what is worth protecting.
+  const body = atomicWriteBody();
+  const rmAt = body.search(/rmSync\s*\(/);
+  assert.notEqual(rmAt, -1, "no rmSync to guard");
+  // The rm must sit inside a try of its own, opened after the outer catch.
+  const catchAt = body.indexOf("catch", body.search(/renameSync\s*\(/));
+  const innerTry = body.indexOf("try", catchAt);
+  assert.ok(innerTry !== -1 && innerTry < rmAt, "rmSync is not inside its own try — it can mask the write error");
+  assert.notEqual(body.indexOf("catch", rmAt), -1, "the cleanup try has no catch");
 });
 
 test("the temp file is named in the shape .gitignore actually covers", () => {

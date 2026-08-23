@@ -39,7 +39,19 @@ export function atomicWrite(file: string, content: string): void {
     // (#3006/#3046), ENOSPC, a read-only mount — leaves the user's own CV lying
     // in the repo under a second filename, one per failure, forever. Nothing
     // else ever removes it.
-    fs.rmSync(tmp, { force: true });
+    //
+    // The cleanup gets its own catch because `force: true` only suppresses
+    // ENOENT — never EPERM/EBUSY, which is the same contention that brought us
+    // into this branch and can hold the temp file too. An unguarded rmSync
+    // would then replace the real diagnosis ("rename failed: EPERM") with a
+    // second-order one about a file the caller never asked about, and the
+    // leaked copy is still there either way. `err` is what propagates.
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // Nothing better to do: the write already failed and the caller is about
+      // to hear why. The leftover is unstageable (.gitignore `*.tmp*`).
+    }
     throw err;
   }
 }
