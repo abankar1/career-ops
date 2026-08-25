@@ -35,6 +35,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { parseTrackerRow, resolveColumns, isSeparatorRow, isHeaderRow } from './tracker-parse.mjs';
 import { resolveTrackerPath, resolveWorkspaceRoot } from './tracker-utils.mjs';
+import { canonicalOutcome } from './lib/outcome-types.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 
@@ -45,7 +46,11 @@ const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 // scoring picked a matchable role), and an offer is tier 2. `rejected` and
 // `no_response` are terminal negatives. `interview_only` means the process
 // ended after interviews with no offer — it still reached tier 1.
-const JOURNAL_OUTCOMES = {
+// Keyed by CANONICAL type only. outcome.mjs accepts fourteen spellings and
+// writes whichever one was typed straight into the journal, so every read goes
+// through canonicalOutcome() first — a private list of the seven canonical
+// names silently ignored the other seven (see lib/outcome-types.mjs).
+export const JOURNAL_OUTCOMES = {
   hired: { reachedInterview: true, reachedOffer: true, terminal: true },
   offer_received: { reachedInterview: true, reachedOffer: true, terminal: true },
   offer_declined: { reachedInterview: true, reachedOffer: true, terminal: true },
@@ -89,7 +94,15 @@ export function parseOutcomeJournal(text) {
   const feedback = [];
   for (const entry of entries) {
     const typeMatch = entry.match(/^- \*\*Outcome Type\*\*: *(\S+)/m);
-    if (typeMatch && JOURNAL_OUTCOMES[typeMatch[1]]) latestType = typeMatch[1];
+    // Resolved through the shared vocabulary, not looked up directly. An
+    // UNRECOGNIZED type must not leave `latestType` at its previous value
+    // either: that is precisely how a journal ending in `ghosted` reported the
+    // `interview_progress` above it — the happiest historical moment this
+    // function's contract forbids.
+    if (typeMatch) {
+      const canonical = canonicalOutcome(typeMatch[1]);
+      if (canonical) latestType = canonical;
+    }
     // Feedback is a blockquote under "Verbatim Feedback"; "None recorded" is
     // the explicit empty marker outcome.mjs writes, not user content.
     const fbMatch = entry.match(/- \*\*Verbatim Feedback\*\*:\n((?:> .*\n?)+)/);
