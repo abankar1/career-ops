@@ -75,6 +75,22 @@ test('a hand-edited journal spelling still resolves', () => {
   assert.equal(parseOutcomeJournal(journal('REJECTED')).latestType, 'rejected');
 });
 
+test('an unrecognized FINAL entry clears the earlier one', () => {
+  // The same defect as the alias case, one step further out: a type genuinely
+  // outside the vocabulary must not leave the previous entry standing either.
+  // `interview_progress` then `withdrawn_by_employer` is not an application
+  // still progressing through interviews — null falls through to the tracker
+  // status, which is the honest answer for an outcome we cannot read.
+  assert.equal(parseOutcomeJournal(journal('interview_progress', 'withdrawn_by_employer')).latestType, null);
+  assert.equal(parseOutcomeJournal(journal('offer_received', 'something_new')).latestType, null);
+  // …and it really does fall through, rather than dropping the row.
+  const rows = [{ num: 1, company: 'Acme', score: 4.6, status: 'Rejected' }];
+  const journals = new Map([[1, parseOutcomeJournal(journal('offer_received', 'something_new'))]]);
+  const out = computeCalibration(rows, journals, { minBandN: 1 });
+  assert.equal(out.resolved, 1, 'the row must resolve from its tracker status');
+  assert.equal(out.bands.find((b) => b.band === '>=4.5').offers, 0, 'the stale offer must not survive');
+});
+
 test('an unrecognized type is still unrecognized', () => {
   // The widening must not turn into "accept anything": an unknown type has to
   // fall through to the tracker status, not invent a meaning.

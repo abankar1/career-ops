@@ -94,15 +94,15 @@ export function parseOutcomeJournal(text) {
   const feedback = [];
   for (const entry of entries) {
     const typeMatch = entry.match(/^- \*\*Outcome Type\*\*: *(\S+)/m);
-    // Resolved through the shared vocabulary, not looked up directly. An
-    // UNRECOGNIZED type must not leave `latestType` at its previous value
-    // either: that is precisely how a journal ending in `ghosted` reported the
-    // `interview_progress` above it — the happiest historical moment this
+    // Assigned UNCONDITIONALLY when the field is present, including when it
+    // resolves to null. The last entry is the truth, so a final entry this
+    // vocabulary cannot read must not leave the previous one standing —
+    // `interview_progress` then `withdrawn_by_employer` is not an application
+    // still progressing through interviews. Clearing it falls through to the
+    // tracker status, which is the honest answer for an outcome we cannot read;
+    // keeping the earlier one is the happiest-historical-moment behaviour this
     // function's contract forbids.
-    if (typeMatch) {
-      const canonical = canonicalOutcome(typeMatch[1]);
-      if (canonical) latestType = canonical;
-    }
+    if (typeMatch) latestType = canonicalOutcome(typeMatch[1]);
     // Feedback is a blockquote under "Verbatim Feedback"; "None recorded" is
     // the explicit empty marker outcome.mjs writes, not user content.
     const fbMatch = entry.match(/- \*\*Verbatim Feedback\*\*:\n((?:> .*\n?)+)/);
