@@ -133,6 +133,29 @@ for (const path of timestampedBackupProbes) {
   else fail(`${path}: git check-ignore could not answer — ${stderr}`);
 }
 
+// The tracker's DERIVED SQLite index (tracker.mjs, #918), which carries the
+// same content as the markdown it indexes — company, role, score, status,
+// notes.
+//
+// On the standard layout it lands in data/ and the rules above already cover
+// it. But resolveTrackerPath() falls back to `<root>/applications.md` when
+// data/applications.md is absent, and the index follows the markdown, so on
+// the legacy layout it sits in the repo root instead. That is also every fresh
+// clone: `node test-all.mjs` leaves one there, 36KB, ready for `git add .`.
+const derivedIndexProbes = [
+  'applications.db',
+  'applications.db-wal',
+  'applications.db-shm',
+  'data/applications.db',
+];
+
+for (const path of derivedIndexProbes) {
+  const { verdict, stderr } = checkIgnore(path);
+  if (verdict === 'ignored') pass(`${path} is git-ignored`);
+  else if (verdict === 'not-ignored') fail(`${path} is NOT git-ignored — the derived index holds the same PII as the tracker`);
+  else fail(`${path}: git check-ignore could not answer — ${stderr}`);
+}
+
 // Not user-layer data, but the same mechanism: this one is about what a
 // reflexive `git add .` can swallow. test-all.mjs builds its script-runner
 // sandbox with mkdtempSync under the repo ROOT, and a suite interrupted
