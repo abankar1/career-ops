@@ -142,11 +142,22 @@ for (const path of timestampedBackupProbes) {
 // data/applications.md is absent, and the index follows the markdown, so on
 // the legacy layout it sits in the repo root instead. That is also every fresh
 // clone: `node test-all.mjs` leaves one there, 36KB, ready for `git add .`.
+//
+// The nested probes are the ones that decide the SHAPE of the rule. A
+// root-anchored `/*.db` covers the repo root and nothing else, and would still
+// pass every root probe below — but getCareerOpsRoot() resolves a RELATIVE
+// CAREER_OPS_ROOT (or .career-ops-data marker) against the codebase directory,
+// so a data root configured as `career-data` puts the tracker, and its index,
+// in a subdirectory of the checkout. `data/applications.db` cannot settle this
+// on its own: it is already covered by the blanket `data/*` rule at the top of
+// the file, so it passes either way.
 const derivedIndexProbes = [
   'applications.db',
   'applications.db-wal',
   'applications.db-shm',
   'data/applications.db',
+  'career-data/applications.db',
+  'career-data/applications.db-wal',
 ];
 
 for (const path of derivedIndexProbes) {
