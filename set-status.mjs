@@ -604,12 +604,16 @@ if (statusChanged && newStatus === 'Applied') {
       // late — from the wrong anchor, silently.
       date: flags.on,
       dryRun: flags.dryRun,
-      // force on a DRY RUN only. seedFollowup refuses a row that is not Applied,
-      // and on a dry run the tracker was deliberately not written — so the row
-      // it re-reads still holds the old status and the preview would report a
-      // failure for the one thing the real run is about to do. In a real run the
-      // row IS Applied by this point and the check does its job unforced.
-      ...(flags.dryRun ? { force: true } : {}),
+      // assumeApplied on a DRY RUN only, and deliberately not `force`.
+      // seedFollowup refuses a row that is not Applied, and on a dry run the
+      // tracker was not written — so the row it re-reads still holds the old
+      // status and the preview would report a failure for the one thing the
+      // real run is about to do. `force` would fix that by ALSO suppressing
+      // the already-seeded check, which is the opposite of a preview: a row
+      // that already has a pin would be promised a new one here and refused
+      // on the real run. assumeApplied relaxes the status guard only. In a
+      // real run the row IS Applied by this point and neither is needed.
+      ...(flags.dryRun ? { assumeApplied: true } : {}),
     });
     followupSeeded = { seeded: seed.seeded, nextDate: seed.nextDate ?? null, ...(seed.reason ? { reason: seed.reason } : {}) };
     if (!flags.json && seed.seeded) {

@@ -183,3 +183,27 @@ test('--on anchors the follow-up on the day the application was really sent', ()
     for (const d of [withOn, withoutOn]) rmSync(d, { recursive: true, force: true, maxRetries: 10 });
   }
 });
+
+test('--dry-run does not promise a pin the real run would refuse', () => {
+  // The preview has to relax the Applied-status guard, because on a dry run the
+  // row was deliberately not written and is still Evaluated. What it must NOT
+  // relax is idempotency: a row that already carries a pin gets `already-seeded`
+  // from a real run, so a preview claiming a fresh pin is a preview of something
+  // that will not happen.
+  const dir = sandbox();
+  try {
+    setStatus(dir, ['--row', '7', 'Applied']);      // a pin now exists
+    setStatus(dir, ['--row', '7', 'Interview']);    // so the next Applied is a real transition again
+
+    const dry = jsonOf(setStatus(dir, ['--row', '7', 'Applied', '--dry-run', '--json']));
+    assert.equal(dry.followupSeeded?.seeded, false, 'the preview promised a pin on a row that already has one');
+    assert.equal(dry.followupSeeded?.reason, 'already-seeded');
+
+    const real = jsonOf(setStatus(dir, ['--row', '7', 'Applied', '--json']));
+    assert.equal(real.followupSeeded?.seeded, false, 'the real run seeded a duplicate');
+    assert.equal(real.followupSeeded?.reason, dry.followupSeeded?.reason, 'the preview and the real run disagree');
+    assert.equal(pinsFor(dir, 7), 1, 'a duplicate pin was written');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+  }
+});
