@@ -152,3 +152,34 @@ test('a seeding failure never fails the status change', () => {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
   }
 });
+
+const jsonOf = (r) => JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+const daysBetween = (a, b) =>
+  Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+
+test('--on anchors the follow-up on the day the application was really sent', () => {
+  // --on is the day the transition REALLY happened, and for a transition into
+  // Applied that is the day the application went out. Nothing else carries it:
+  // the tracker's date column is the EVALUATION date (2026-02-01 in the
+  // fixture) and set-status never rewrites it, so a dropped --on silently
+  // anchors the cadence on the wrong day.
+  //
+  // Asserted as a difference between two runs rather than against a hardcoded
+  // date, so the cadence length stays configurable: backdating the anchor by
+  // 27 days must move the first follow-up back by exactly 27 days.
+  const withOn = sandbox();
+  const withoutOn = sandbox();
+  try {
+    const anchored = jsonOf(setStatus(withOn, ['--row', '7', 'Applied', '--on', '2026-01-05', '--json']));
+    const unanchored = jsonOf(setStatus(withoutOn, ['--row', '7', 'Applied', '--json']));
+    const shift = daysBetween(anchored.followupSeeded.nextDate, unanchored.followupSeeded.nextDate);
+    assert.equal(
+      shift,
+      daysBetween('2026-01-05', '2026-02-01'),
+      `--on did not reach the seeder: it scheduled ${anchored.followupSeeded.nextDate} from a 2026-01-05 apply date, ` +
+      `the same as the ${unanchored.followupSeeded.nextDate} it picks off the evaluation-date column with no --on at all`,
+    );
+  } finally {
+    for (const d of [withOn, withoutOn]) rmSync(d, { recursive: true, force: true, maxRetries: 10 });
+  }
+});

@@ -595,6 +595,14 @@ if (statusChanged && newStatus === 'Applied') {
     const seed = await seedFollowup(target.num, {
       trackerPath: APPS_FILE,
       followupsPath: join(dirname(APPS_FILE), 'follow-ups.md'),
+      // --on is the day the transition REALLY happened, and for a transition
+      // into Applied that day is the day the application was sent. Nothing
+      // else carries it here: the tracker's date column is the evaluation
+      // date and this script never rewrites it, so without passing it on,
+      // seedFollowup falls back to that column or to today. Backdating a
+      // week-old application would then schedule its first follow-up a week
+      // late — from the wrong anchor, silently.
+      date: flags.on,
       dryRun: flags.dryRun,
       // force on a DRY RUN only. seedFollowup refuses a row that is not Applied,
       // and on a dry run the tracker was deliberately not written — so the row
