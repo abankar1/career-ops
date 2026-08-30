@@ -151,14 +151,21 @@ for (const path of timestampedBackupProbes) {
 // in a subdirectory of the checkout. `data/applications.db` cannot settle this
 // on its own: it is already covered by the blanket `data/*` rule at the top of
 // the file, so it passes either way.
-const derivedIndexProbes = [
-  'applications.db',
-  'applications.db-wal',
-  'applications.db-shm',
-  'data/applications.db',
-  'career-data/applications.db',
-  'career-data/applications.db-wal',
+//
+// Built as a cross-product rather than hand-listed. tracker.mjs derives every
+// one of these from a single path — DB_PATH is resolveTrackerPath() with .md
+// swapped for .db, and SQLite appends the sidecar suffixes to that — so any
+// directory that can hold the index can hold all three names. Enumerating them
+// by hand is how the -shm sidecar ended up covered in the repo root and missed
+// one directory down.
+const derivedIndexLocations = [
+  'applications',                // legacy layout: tracker markdown in the root
+  'data/applications',           // standard layout
+  'career-data/applications',    // a relative CAREER_OPS_ROOT / .career-ops-data root
 ];
+const derivedIndexProbes = derivedIndexLocations.flatMap(
+  (base) => ['.db', '.db-wal', '.db-shm'].map((suffix) => `${base}${suffix}`),
+);
 
 for (const path of derivedIndexProbes) {
   const { verdict, stderr } = checkIgnore(path);
