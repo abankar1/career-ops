@@ -32,6 +32,16 @@ const FILE = '/somewhere/config/plugins.yml';
 
 // Two plugins and a stored non-secret setting, with one malformed line — the
 // shape a typo actually produces.
+//
+// The malformed line is a TAB in the indentation, chosen because every js-yaml
+// version rejects it with the same message. The first version of this fixture
+// used a bare `  : value`, which js-yaml 4 throws on and js-yaml 5 happily reads
+// as a null key — so the fixture was not malformed at all on CI, the guard was
+// never reached, and the suite failed there while passing locally. package.json
+// asks for ^5.3.0 and there is no root lockfile, so which major a given
+// checkout has is not fixed; a fixture for a parse failure must not depend on
+// it. assertFixtureIsMalformed below turns that back into a loud failure if a
+// future version ever accepts this too.
 const MALFORMED = [
   'plugins:',
   '  apify:',
@@ -40,8 +50,21 @@ const MALFORMED = [
   '      dataset: KEEP-ME',
   '  gmail:',
   '    enabled: true',
-  '  : this line is malformed',
+  '\tbroken: this line is indented with a tab',
 ].join('\n');
+
+// The fixture has one job. If the installed js-yaml parses it, every assertion
+// below is vacuous, so say THAT rather than reporting the guard as broken.
+test('the fixture is actually unparseable by the installed js-yaml', async () => {
+  // `import * as`, not a default import: js-yaml 5 has no default export, and
+  // test-all guards the whole repo against that shape.
+  const yaml = await import('js-yaml');
+  assert.throws(
+    () => yaml.load(MALFORMED),
+    'the malformed fixture parsed cleanly — it is no longer testing anything. '
+    + 'Pick input this js-yaml rejects and re-check the other tests in this file.',
+  );
+});
 
 test('a malformed config is refused, not silently emptied', () => {
   assert.throws(
@@ -143,7 +166,7 @@ function pluginSandbox(contents) {
 }
 
 test('doctor --json distinguishes an unparseable config from an empty one', () => {
-  const bad = pluginSandbox('plugins:\n  apify:\n    enabled: true\n  : malformed\n');
+  const bad = pluginSandbox(MALFORMED);   // same fixture, same version-independence
   try {
     const j = doctorJson(bad);
     assertTargeted(j, bad);

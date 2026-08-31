@@ -225,6 +225,17 @@ export function parsePluginConfig(raw, file) {
   // Absent is not unreadable: no file means a first enable, which is the whole
   // point of the function. Only an existing-but-unparseable file is a refusal.
   if (raw == null) return {};
+  // An empty or comment-only file is "no config yet", not a corrupt one, and it
+  // must take the same path as an absent one. Decided from the text rather than
+  // from what the parser does with it: js-yaml 4 returns undefined for an empty
+  // document and js-yaml 5 throws "expected a document, but the input is empty",
+  // so inferring it from the parser would make this refuse to write over a
+  // comment-only config on one major and not the other.
+  const hasContent = raw.split('\n').some((line) => {
+    const t = line.trim();
+    return t !== '' && !t.startsWith('#');
+  });
+  if (!hasContent) return {};
   let cfg;
   try {
     cfg = yaml.load(raw);
