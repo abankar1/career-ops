@@ -109,13 +109,30 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
+// --target, not CAREER_OPS_ROOT. It is the flag doctor's own existing suite
+// uses (tests/doctor-unfilled-templates.test.mjs) and it names the directory
+// outright instead of going through env resolution, which the parent process,
+// the suite runner and a .career-ops-data marker can all have an opinion about.
+// An earlier version of this helper passed the env var and read the target
+// correctly on my machine and not on CI's.
 function doctorJson(dir) {
-  const r = spawnSync(process.execPath, [join(ROOT, 'doctor.mjs'), '--json'], {
-    cwd: ROOT, encoding: 'utf-8', timeout: 60_000,
+  const r = spawnSync(process.execPath, [join(ROOT, 'doctor.mjs'), '--json', '--target', dir], {
+    cwd: dir, encoding: 'utf-8', timeout: 60_000,
     env: { ...process.env, CAREER_OPS_ROOT: dir },
   });
   assert.equal(r.error, undefined, `spawn failed: ${r.error?.message}`);
-  return JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+  const brace = r.stdout.indexOf('{');
+  assert.notEqual(brace, -1, `doctor --json printed no JSON. stdout=${JSON.stringify(r.stdout.slice(0, 300))} stderr=${JSON.stringify(r.stderr.slice(0, 300))}`);
+  return JSON.parse(r.stdout.slice(brace));
+}
+
+// Proves doctor actually looked at the fixture before any assertion reads a
+// field off it. Without this, a doctor pointed somewhere else reports a clean
+// config and the malformed-config test fails as a bare `undefined` — which says
+// nothing about the fixture never having been read.
+function assertTargeted(j, dir) {
+  const looked = JSON.stringify(j).includes('plugins') || Array.isArray(j.plugins);
+  assert.ok(looked, `doctor --json did not report on plugins at all for ${dir}: ${JSON.stringify(j).slice(0, 300)}`);
 }
 
 function pluginSandbox(contents) {
@@ -129,7 +146,12 @@ test('doctor --json distinguishes an unparseable config from an empty one', () =
   const bad = pluginSandbox('plugins:\n  apify:\n    enabled: true\n  : malformed\n');
   try {
     const j = doctorJson(bad);
-    assert.ok(j.pluginConfigError, 'doctor reported no parse error for a config that does not parse');
+    assertTargeted(j, bad);
+    assert.ok(
+      j.pluginConfigError,
+      'doctor reported no parse error for a config that does not parse — '
+      + `it either swallowed it or never read ${join(bad, 'config', 'plugins.yml')}`,
+    );
     assert.match(String(j.pluginConfigError), /\S/, 'the reported error is empty');
   } finally {
     rmSync(bad, { recursive: true, force: true, maxRetries: 10 });
