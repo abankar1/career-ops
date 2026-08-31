@@ -96,3 +96,54 @@ test('valid YAML that is not a mapping is refused too', () => {
     );
   }
 });
+
+// ── doctor reports it, rather than reading it as "nothing enabled" ──────────
+//
+// The same swallow lived in doctor.mjs's readPluginConfigSync, which returned
+// {} on a parse error. An unreadable config and a config with nothing enabled
+// produced the same empty object, so the one tool whose job is to say what is
+// wrong answered "off" for every plugin the user had switched on — and said
+// nothing about why.
+
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
+function doctorJson(dir) {
+  const r = spawnSync(process.execPath, [join(ROOT, 'doctor.mjs'), '--json'], {
+    cwd: ROOT, encoding: 'utf-8', timeout: 60_000,
+    env: { ...process.env, CAREER_OPS_ROOT: dir },
+  });
+  assert.equal(r.error, undefined, `spawn failed: ${r.error?.message}`);
+  return JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+}
+
+function pluginSandbox(contents) {
+  const dir = mkdtempSync(join(tmpdir(), 'career-ops-doctor-plug-'));
+  mkdirSync(join(dir, 'config'), { recursive: true });
+  writeFileSync(join(dir, 'config', 'plugins.yml'), contents);
+  return dir;
+}
+
+test('doctor --json distinguishes an unparseable config from an empty one', () => {
+  const bad = pluginSandbox('plugins:\n  apify:\n    enabled: true\n  : malformed\n');
+  try {
+    const j = doctorJson(bad);
+    assert.ok(j.pluginConfigError, 'doctor reported no parse error for a config that does not parse');
+    assert.match(String(j.pluginConfigError), /\S/, 'the reported error is empty');
+  } finally {
+    rmSync(bad, { recursive: true, force: true, maxRetries: 10 });
+  }
+});
+
+test('and adds no new key on a healthy config', () => {
+  // Existing --json consumers must see no change on the ordinary path; the
+  // field is the signal that something IS wrong, so its presence has to mean
+  // that and only that.
+  const good = pluginSandbox('plugins:\n  apify:\n    enabled: true\n');
+  try {
+    assert.ok(!('pluginConfigError' in doctorJson(good)), 'the error key appears on a healthy config');
+  } finally {
+    rmSync(good, { recursive: true, force: true, maxRetries: 10 });
+  }
+});
