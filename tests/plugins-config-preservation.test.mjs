@@ -1,0 +1,98 @@
+// tests/plugins-config-preservation.test.mjs — enabling or disabling a plugin
+// must never destroy config/plugins.yml.
+//
+// setEnabled()'s own comment states the contract: "merging (never clobbering
+// the user's other plugins or non-secret settings)". The merge was only a merge
+// if the read succeeded. A swallowed parse error left cfg as {}, and the write
+// put that empty object back over the file — every other plugin's enabled state
+// and settings gone, including any non-secret value stored there, with nothing
+// printed.
+//
+// What makes it expensive rather than annoying: the trigger is a YAML typo, the
+// most likely reason a hand-edited config does not parse and exactly when the
+// file most needs not to be replaced; and config/plugins.yml is a USER path in
+// update-system.mjs, so there is no copy to restore from.
+//
+// Tested through parsePluginConfig rather than the CLI. setEnabled resolves its
+// path from the SCRIPT's directory, so a CLI-level test would have to write to
+// the real checkout's config to exercise anything — the guard is the part with
+// the logic, and this reaches it without that.
+//
+// Run:  node --test tests/plugins-config-preservation.test.mjs
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const { parsePluginConfig } = await import(pathToFileURL(join(ROOT, 'plugins.mjs')).href);
+
+const FILE = '/somewhere/config/plugins.yml';
+
+// Two plugins and a stored non-secret setting, with one malformed line — the
+// shape a typo actually produces.
+const MALFORMED = [
+  'plugins:',
+  '  apify:',
+  '    enabled: true',
+  '    settings:',
+  '      dataset: KEEP-ME',
+  '  gmail:',
+  '    enabled: true',
+  '  : this line is malformed',
+].join('\n');
+
+test('a malformed config is refused, not silently emptied', () => {
+  assert.throws(
+    () => parsePluginConfig(MALFORMED, FILE),
+    (err) => {
+      // The message has to carry both halves: which file, and that nothing was
+      // written. "Failed to parse" alone leaves the user unsure whether the
+      // enable half-applied.
+      assert.match(err.message, /plugins\.yml/, 'the error does not name the file');
+      assert.match(err.message, /refusing to overwrite/i, 'the error does not say the file was left alone');
+      return true;
+    },
+  );
+});
+
+test('returning {} here is what destroyed the file — pin that it cannot', () => {
+  // The regression in one line: before the guard this call returned {}, and
+  // setEnabled wrote that back. Anything other than a throw is the bug.
+  let returned;
+  try {
+    returned = parsePluginConfig(MALFORMED, FILE);
+  } catch {
+    return; // threw — correct
+  }
+  assert.fail(`parsePluginConfig returned ${JSON.stringify(returned)} for an unparseable config instead of throwing`);
+});
+
+test('an absent config is a first enable, not a failure', () => {
+  // The guard must not buy safety by breaking the ordinary path.
+  assert.deepEqual(parsePluginConfig(null, FILE), {});
+});
+
+test('an empty file is treated as absent', () => {
+  assert.deepEqual(parsePluginConfig('', FILE), {});
+  assert.deepEqual(parsePluginConfig('\n# just a comment\n', FILE), {});
+});
+
+test('a well-formed config is returned intact for the merge', () => {
+  const cfg = parsePluginConfig('plugins:\n  gmail:\n    enabled: true\n    settings:\n      label: KEEP-ME\n', FILE);
+  assert.equal(cfg.plugins.gmail.enabled, true);
+  assert.equal(cfg.plugins.gmail.settings.label, 'KEEP-ME', 'an unrelated plugin\'s stored setting did not survive the read');
+});
+
+test('valid YAML that is not a mapping is refused too', () => {
+  // A scalar or a list parses cleanly and is still not a config. Spreading one
+  // into the write would discard it exactly as silently as the empty object.
+  for (const raw of ['just a string', '- a\n- b\n', '42']) {
+    assert.throws(
+      () => parsePluginConfig(raw, FILE),
+      /refusing to overwrite/i,
+      `a non-mapping config (${JSON.stringify(raw)}) was accepted`,
+    );
+  }
+});
