@@ -52,6 +52,7 @@ import * as yaml from 'js-yaml';
 
 import { parseActiveInterviews } from './process-quality.mjs';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
+import { isPlaceholderCompany } from './lib/placeholder-cell.mjs';
 import { roleFuzzyMatch } from './role-matcher.mjs';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { localToday } from './lib/local-today.mjs';
@@ -206,6 +207,49 @@ export function parseTrackerInterviewRows(content) {
     byCompany.get(key).push(row);
   }
   return byCompany;
+}
+
+/**
+ * Interview-state tracker rows this signal CANNOT see, because their employer
+ * cell is a placeholder rather than a name.
+ *
+ * companyKey() strips everything that is not a letter or a digit, so `?` — the
+ * documented marker for an undisclosed end employer (#1596) — normalizes to the
+ * empty string and parseTrackerInterviewRows' `if (!key) continue` discards the
+ * row. The same goes for the `—`/`-` no-data sentinels.
+ *
+ * Dropping them is defensible; dropping them SILENTLY is not. This check exists
+ * to flag applications that have gone quiet, and agency-brokered roles — the
+ * ones that carry `?` plus a `via=` field — are where the candidate has the
+ * least visibility and ghosting is most common. A report that quietly omits
+ * them reads as "nothing is overdue" rather than "I did not look at these".
+ *
+ * Counting rather than guessing an identity is deliberate. Every `?` row says
+ * `?` on both sides, so joining them to active-interviews.md by company would
+ * match each one against all the others — a wrong answer in place of a stated
+ * gap. Naming the gap is the honest result until the rows carry something that
+ * can identify them (a `via=` agency, or a req ID in notes).
+ *
+ * Separate from parseTrackerInterviewRows rather than folded into its return so
+ * that function's Map contract is untouched — two internal callers and
+ * tests/local-today-gates.test.mjs consume it as a plain Map.
+ *
+ * @param {string} content - Raw tracker markdown.
+ * @returns {object[]} The excluded rows, in file order.
+ */
+export function placeholderInterviewRows(content) {
+  if (typeof content !== 'string' || !content.trim()) return [];
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const colmap = resolveColumns(lines);
+  const excluded = [];
+  for (const line of lines) {
+    const row = parseTrackerRow(line, colmap);
+    if (!row) continue;
+    const status = String(row.status || '').replace(/\*\*/g, '').trim().toLowerCase();
+    if (status !== 'interview') continue;
+    if (isPlaceholderCompany(row.company)) excluded.push(row);
+  }
+  return excluded;
 }
 
 // --- Blacklist suggestion (suggestion-only, #1742/#1856) ---
@@ -587,17 +631,32 @@ if (isMainModule(import.meta.url)) {
   }
 
   const interviewRows = parseActiveInterviews(readNormalized(ACTIVE_INTERVIEWS_PATH));
-  const trackerByCompany = parseTrackerInterviewRows(readNormalized(TRACKER_PATH));
+  const trackerMd = readNormalized(TRACKER_PATH);
+  const trackerByCompany = parseTrackerInterviewRows(trackerMd);
+  // Applications this signal cannot see. Reported, not dropped: see
+  // placeholderInterviewRows for why counting beats inventing an identity.
+  const excluded = placeholderInterviewRows(trackerMd);
 
   const result = computeRejectionLatency(interviewRows, trackerByCompany, {
     today, courtesyDays,
   });
+
+  if (excluded.length) {
+    const nums = excluded.map(r => `#${r.num}`).join(', ');
+    result.warnings.push(
+      `${excluded.length} Interview-state application${excluded.length === 1 ? '' : 's'} (${nums}) `
+      + 'excluded: the employer cell is a placeholder, so there is nothing to group or attribute by. '
+      + 'Put the agency in a via= field or the req ID in notes to make them identifiable.',
+    );
+  }
 
   const metadata = {
     today: isoDay(today),
     courtesyDays,
     interviewRows: interviewRows.length,
     companiesChecked: result.companiesChecked,
+    // Distinguishes "nothing is overdue" from "I did not look at these".
+    placeholderApplicationsExcluded: excluded.length,
     flagged: result.flags.length,
     disclaimer: DISCLAIMER,
   };
