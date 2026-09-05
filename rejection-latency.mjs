@@ -170,6 +170,36 @@ export function companyKey(name) {
   return String(name || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
 
+/**
+ * The identity a row groups under, once a placeholder employer is accounted for.
+ *
+ * Mirrors process-quality.mjs:190-205, which solved this first and for the same
+ * data. A `?` employer names nothing, but a `?` row that names its CHANNEL does
+ * identify something the user can act on: every round brokered by one agency is
+ * one relationship, and that is the thing going quiet. So the channel becomes
+ * the bucket, and a row naming neither employer nor channel supports no
+ * per-company claim at all.
+ *
+ * The prefix is ALWAYS `?`, never the cell's own spelling. isPlaceholderCompany
+ * accepts `?`, `—`, `-` and an empty cell, and they all mean the same thing —
+ * but keeping them verbatim would key `— (via Hays)` apart from `? (via Hays)`
+ * and split one channel's totals, which is this file's own bug in miniature.
+ *
+ * @param {string} company
+ * @param {string} via - The `via=` channel, or '' when the row has none.
+ * @returns {{key: string, label: string}|null} null when the row identifies nothing.
+ */
+export function groupIdentity(company, via) {
+  if (!isPlaceholderCompany(company)) {
+    const key = companyKey(company);
+    return key ? { key, label: String(company).trim() } : null;
+  }
+  const channel = String(via || '').trim();
+  if (!channel || isPlaceholderCompany(channel)) return null;
+  const label = `? (via ${channel})`;
+  return { key: `?via:${companyKey(channel)}`, label };
+}
+
 // Case-insensitive column lookup for candidate-edited markdown headers
 // ("Notes" vs "notes" vs " Notes ") — same convention as process-quality.mjs.
 function findColumn(row, name) {
@@ -201,10 +231,13 @@ export function parseTrackerInterviewRows(content) {
     if (!row) continue;
     const status = String(row.status || '').replace(/\*\*/g, '').trim().toLowerCase();
     if (status !== 'interview') continue;
-    const key = companyKey(row.company);
-    if (!key) continue;
-    if (!byCompany.has(key)) byCompany.set(key, []);
-    byCompany.get(key).push(row);
+    // A placeholder employer that names its channel groups under that channel;
+    // one that names neither identifies nothing and is reported by
+    // placeholderInterviewRows instead of being dropped in silence.
+    const identity = groupIdentity(row.company, row.via);
+    if (!identity) continue;
+    if (!byCompany.has(identity.key)) byCompany.set(identity.key, []);
+    byCompany.get(identity.key).push({ ...row, groupLabel: identity.label });
   }
   return byCompany;
 }
@@ -247,7 +280,11 @@ export function placeholderInterviewRows(content) {
     if (!row) continue;
     const status = String(row.status || '').replace(/\*\*/g, '').trim().toLowerCase();
     if (status !== 'interview') continue;
-    if (isPlaceholderCompany(row.company)) excluded.push(row);
+    // Only rows that identify NOTHING. A placeholder employer with a via=
+    // channel now groups under that channel, so counting it here would report
+    // an exclusion that no longer happens — and would keep telling the user to
+    // add a via= they already added.
+    if (!groupIdentity(row.company, row.via)) excluded.push(row);
   }
   return excluded;
 }
@@ -300,12 +337,23 @@ export function computeRejectionLatency(interviewRows, trackerByCompany, opts = 
   // on each individual interview-round line (#2014 CodeRabbit).
   const byApplication = new Map(); // key: sorted tracker row numbers joined with ','
   const companiesSeen = new Set();
+  // Interview rounds whose employer AND channel are both placeholders. They
+  // cannot be attributed, and the caller has to be able to say so.
+  const placeholderRounds = [];
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
     const company = findColumn(row, 'company').trim();
     if (!company) continue;
-    const cKey = companyKey(company);
-    if (!cKey) continue;
+    // Same treatment as the tracker side, because THIS is the side the flags
+    // come from: a `?` round dropped here produces no flag even when its
+    // tracker row grouped fine. Reported rather than skipped, for the same
+    // reason — an omission the user cannot see reads as "nothing is overdue".
+    const identity = groupIdentity(company, findColumn(row, 'via'));
+    if (!identity) {
+      placeholderRounds.push(row);
+      continue;
+    }
+    const cKey = identity.key;
 
     const dateCell = findColumn(row, 'date/time') || findColumn(row, 'date');
     const date = extractDate(dateCell);
@@ -350,7 +398,11 @@ export function computeRejectionLatency(interviewRows, trackerByCompany, opts = 
 
     const appKey = trackerRows.map(r => r.num).sort((a, b) => a - b).join(',');
     if (!byApplication.has(appKey)) {
-      byApplication.set(appKey, { company, role, lastDate: date, trackerRows });
+      // identity.label, not the raw cell. For a placeholder employer that is
+      // `? (via Hays)`, which is what the report prints AND what the blacklist
+      // suggestion row carries — a bare `?` there would be a do-not-apply entry
+      // naming no company, and data/blacklist.md is matched by name.
+      byApplication.set(appKey, { company: identity.label, role, lastDate: date, trackerRows });
     } else {
       const entry = byApplication.get(appKey);
       if (date > entry.lastDate) {
@@ -394,7 +446,14 @@ export function computeRejectionLatency(interviewRows, trackerByCompany, opts = 
     return a.company.localeCompare(b.company);
   });
 
-  return { flags, warnings, companiesChecked: companiesSeen.size };
+  if (placeholderRounds.length) {
+    warnings.push(
+      `${placeholderRounds.length} interview round${placeholderRounds.length === 1 ? '' : 's'} in `
+      + 'data/active-interviews.md could not be attributed: the employer cell is a placeholder and '
+      + 'no via= channel is set, so there is nothing to group by. Adding via= groups them under that channel.',
+    );
+  }
+  return { flags, warnings, companiesChecked: companiesSeen.size, placeholderRounds: placeholderRounds.length };
 }
 
 // --- File loading (CRLF normalized at read time — this repo's CRLF bug class) ---
@@ -411,7 +470,16 @@ function printSummary(result, meta) {
   console.log(`${'='.repeat(78)}\n`);
 
   if (result.flags.length === 0) {
-    console.log('  No post-interview silence exceeded the configured thresholds.\n');
+    // An all-clear only where everything was actually assessed. With rows this
+    // check could not attribute, "nothing exceeded the thresholds" is a claim
+    // about a subset printed as though it covered the whole file — the exact
+    // silence this change exists to remove, restated one line higher.
+    const unassessed = (meta.placeholderApplicationsExcluded || 0) + (result.placeholderRounds || 0);
+    if (unassessed === 0) {
+      console.log('  No post-interview silence exceeded the configured thresholds.\n');
+    } else {
+      console.log(`  Nothing flagged among the applications this check could assess — ${unassessed} could not be (see below).\n`);
+    }
   } else {
     const header =
       '  ' +
@@ -645,8 +713,8 @@ if (isMainModule(import.meta.url)) {
     const nums = excluded.map(r => `#${r.num}`).join(', ');
     result.warnings.push(
       `${excluded.length} Interview-state application${excluded.length === 1 ? '' : 's'} (${nums}) `
-      + 'excluded: the employer cell is a placeholder, so there is nothing to group or attribute by. '
-      + 'Put the agency in a via= field or the req ID in notes to make them identifiable.',
+      + 'excluded: the employer cell is a placeholder and no via= channel is set, so there is nothing '
+      + 'to group by. Setting via= groups them under that channel — the only remediation this check reads.',
     );
   }
 
