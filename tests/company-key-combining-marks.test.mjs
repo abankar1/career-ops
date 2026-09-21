@@ -21,6 +21,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -125,4 +126,38 @@ test('two agencies differing only in vowel signs get separate via buckets', () =
 test('a Latin role still joins case- and punctuation-insensitively', () => {
   // The guard for the role leg, matching the company one above.
   assert.equal(companyKey('Sr. Backend Engineer'), companyKey('sr backend engineer'));
+});
+
+// ── the delegation itself ──────────────────────────────────────────────────
+
+test('companyKey stays a delegation, not a reimplementation', () => {
+  // This is the regression the fix most needs. The bug was a LOCAL copy of a
+  // normalizer that drifted from the maintained one, and the natural way to
+  // reintroduce it is to inline the regex again for speed or to avoid the
+  // import. Agreement is asserted over inputs that separate the two
+  // implementations rather than by reading the source, so any divergence
+  // reddens regardless of how it is written.
+  const probes = [
+    'Acme Corp.', 'acme corp', 'José Ltd', 'Żubr', 'Zubr', 'Ġenerali', 'Generali',
+    'İstanbul Tekstil', 'Istanbul Tekstil', 'कंपनी लिमिटेड', 'शर्मा टेक',
+    'บริษัท', 'مؤسسة', 'वरिष्ठ अभियंता', '', '?', '—', '-', null, undefined,
+  ];
+  for (const p of probes) {
+    assert.equal(
+      companyKey(p), normalizeTextKey(p),
+      `companyKey diverged from normalizeTextKey on ${JSON.stringify(p)} — if that is deliberate, this test should say why`,
+    );
+  }
+});
+
+test('and no local regex in this file strips marks from an identity', () => {
+  // Scoped to this file on purpose. fingerprint-core.mjs and detect-reposts.mjs
+  // carry the same `[^\p{L}\p{N}]` alphabet, but they fingerprint TITLES for
+  // repost detection rather than keying an identity, and detect-reposts folds
+  // accents deliberately with a documented fallback. That is a separate
+  // question with a separate answer, so it is not asserted here — widening this
+  // check to the repo would couple this fix to that decision.
+  const src = readFileSync(join(ROOT, 'rejection-latency.mjs'), 'utf-8');
+  const offenders = src.split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l) && /\[\^\\p\{L\}\\p\{N\}\]/.test(l));
+  assert.deepEqual(offenders, [], `a mark-stripping alphabet came back:\n${offenders.join('\n')}`);
 });
