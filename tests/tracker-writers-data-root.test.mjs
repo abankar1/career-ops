@@ -62,7 +62,22 @@ const cleanup = (f) => {
 function run(script, args, f) {
   const r = spawnSync(process.execPath, [join(ROOT, script), ...args], {
     cwd: f.decoyCwd, encoding: 'utf-8', timeout: 60_000,
-    env: { ...process.env, CAREER_OPS_ROOT: f.dataRoot, CAREER_OPS_DATA_DIR: '' },
+    // CAREER_OPS_TRACKER is cleared too, and that is not belt-and-braces.
+    // path-resolver.mjs ranks it ABOVE the resolved root, so on a machine where
+    // a developer has it exported these spawns ignore f.dataRoot entirely and
+    // operate on whatever tracker it names — and these are the WRITERS. Left
+    // inherited, running this file rewrites that tracker's row 1 from Applied
+    // to Rejected and appends a note. A change about writers finding the wrong
+    // root must not ship a test that writes to the wrong root.
+    //
+    // CI never exports it, so this is invisible there and only ever bites a
+    // contributor running the suite locally.
+    env: {
+      ...process.env,
+      CAREER_OPS_ROOT: f.dataRoot,
+      CAREER_OPS_DATA_DIR: '',
+      CAREER_OPS_TRACKER: '',
+    },
   });
   assert.equal(r.error, undefined, `spawn failed: ${r.error?.message}`);
   return { ...r, all: `${r.stdout ?? ''}${r.stderr ?? ''}` };
