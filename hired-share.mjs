@@ -26,13 +26,13 @@
  * permanent. A flywheel that nags stops being a celebration.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { execFileSync } from 'child_process';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { parseTrackerRow, resolveColumns, isSeparatorRow, isHeaderRow } from './tracker-parse.mjs';
-import { resolveTrackerPath, resolveWorkspaceRoot } from './tracker-utils.mjs';
+import { resolveTrackerPath, resolveWorkspaceRoot, writeFileAtomic } from './tracker-utils.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 
 const REPO_URL = 'https://github.com/career-ops-hq/career-ops';
@@ -96,12 +96,17 @@ function loadState(root) {
     throw new StateError(`${p} is not valid JSON (${String(err.message).split('\n')[0]})`);
   }
 }
+// Atomic, via the same helper every tracker writer uses. A plain writeFileSync
+// truncates before it writes, so an interrupt — Ctrl-C, a full disk, a crash —
+// leaves a half-written file. That file then fails to parse, which is exactly
+// the condition the guard above now refuses to paper over: the non-atomic write
+// is what MANUFACTURES the corruption the silent reset used to hide.
 function saveState(root, s) {
   // A root on the legacy layout (applications.md at the top, no data/) still
   // resolves its hires, so data/ may not exist yet when the answer is recorded.
   const p = statePath(root);
   mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, JSON.stringify(s, null, 2) + '\n');
+  writeFileAtomic(p, JSON.stringify(s, null, 2) + '\n');
 }
 
 /** All tracker rows whose canonical state is Hired, as {report, role, company, location, date}. */
