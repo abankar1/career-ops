@@ -42,6 +42,7 @@ import { dirname, extname, join, relative, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
+import { writeFileAtomic } from './tracker-utils.mjs';
 import { isNestedCheckout } from './lib/mjs-files.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -153,12 +154,27 @@ export function computeDelta(state, sources) {
 }
 
 function loadState() {
+  // Absent is a first run — an empty ledger is correct.
   if (!existsSync(STATE_FILE)) return { ingested: {} };
+  let parsed;
   try {
-    return JSON.parse(readFileSync(STATE_FILE, 'utf-8')) || { ingested: {} };
-  } catch {
-    return { ingested: {} };
+    parsed = JSON.parse(readFileSync(STATE_FILE, 'utf-8'));
+  } catch (err) {
+    // Existing and unreadable is NOT a first run. Returning an empty ledger
+    // makes every already-ingested document look new, so intake re-proposes
+    // additions the user has already reviewed — and the review is the whole
+    // human-in-the-loop step this mode exists for. Saying so costs one message;
+    // hiding it costs the user's trust in the proposals.
+    throw new Error(
+      `${STATE_FILE} is not valid JSON (${String(err.message).split('\n')[0]}) — `
+      + 'fix or delete it; deleting means already-ingested documents are proposed again.',
+    );
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${STATE_FILE} does not contain a JSON object — fix or delete it.`);
+  }
+  if (!parsed.ingested || typeof parsed.ingested !== 'object') parsed.ingested = {};
+  return parsed;
 }
 
 function listSourceFiles() {
@@ -341,7 +357,10 @@ function commitState(result, only = []) {
     count += 1;
   }
   mkdirSync(dirname(STATE_FILE), { recursive: true });
-  writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + '\n', 'utf-8');
+  // Atomic for the same reason as hired-share's: a truncating write that is
+  // interrupted leaves unparseable JSON, which is the condition the loader
+  // above now refuses to silently paper over.
+  writeFileAtomic(STATE_FILE, JSON.stringify(state, null, 2) + '\n');
   return count;
 }
 
