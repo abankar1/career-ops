@@ -36,7 +36,18 @@ export const PATHS = {
   shared:      join(ROOT, 'modes', '_shared.md'),
   oferta:      join(ROOT, 'modes', 'oferta.md'),
   cv:          join(DATA_ROOT, 'cv.md'),
-  profile:     join(ROOT, 'modes', '_profile.md'),
+  // DATA_ROOT, not ROOT. modes/_profile.md is USER LAYER in the Data Contract
+  // — doctor.mjs auto-copies it into the user's root from
+  // modes/_profile.template.md — and it carries the archetypes and North Star
+  // every A-F evaluation scores against.
+  //
+  // Read from the CODE root it resolves to the shipped template, which is the
+  // exact failure AGENTS.md's `unpersonalized` warning exists to prevent:
+  // "offers get scored against the template author's targeting rather than
+  // yours". Silently, and for every offer in the batch.
+  //
+  // gemini-eval.mjs:89 and ollama-eval.mjs:56 both already use DATA_ROOT here.
+  profile:     join(DATA_ROOT, 'modes', '_profile.md'),
   profileYml:  join(DATA_ROOT, 'config', 'profile.yml'),
   reports:     join(DATA_ROOT, 'reports'),
   trackerAdditions: join(ROOT, 'batch', 'tracker-additions'),
