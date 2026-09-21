@@ -263,10 +263,10 @@ export function parseTrackerInterviewRows(content) {
  * Interview-state tracker rows this signal CANNOT see, because their employer
  * cell is a placeholder rather than a name.
  *
- * companyKey() strips everything that is not a letter or a digit, so `?` — the
- * documented marker for an undisclosed end employer (#1596) — normalizes to the
- * empty string and parseTrackerInterviewRows' `if (!key) continue` discards the
- * row. The same goes for the `—`/`-` no-data sentinels.
+ * companyKey() keeps only letters, marks and digits, so `?` — the documented
+ * marker for an undisclosed end employer (#1596) — normalizes to the empty
+ * string and parseTrackerInterviewRows' `if (!key) continue` discards the row.
+ * The same goes for the `—`/`-` no-data sentinels.
  *
  * Dropping them is defensible; dropping them SILENTLY is not. This check exists
  * to flag applications that have gone quiet, and agency-brokered roles — the

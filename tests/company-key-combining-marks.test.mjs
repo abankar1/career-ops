@@ -92,3 +92,37 @@ test('grouping still works end to end for a non-Latin employer', () => {
   assert.ok(byCompany.has(companyKey('शर्मा टेक')), `the Hindi employer did not group: ${[...byCompany.keys()].join(', ')}`);
   assert.equal(byCompany.size, 2, `expected two companies, got ${[...byCompany.keys()].join(', ')}`);
 });
+
+// ── the same key is used for roles and for the via channel ─────────────────
+//
+// companyKey is not only the company key. rejection-latency also keys ROLE
+// titles with it (`:399`, `:401`, for joining an interview round to the right
+// tracker row when a company has several open) and the `via=` AGENCY name
+// (`:217`, for the `? (via Hays)` bucket that groups confidential rows).
+//
+// So the stripped marks hit three identities, not one: a non-Latin role title
+// failed to join its own tracker row, and two distinct agencies could share a
+// channel bucket.
+
+test('a non-Latin role title keeps its marks', () => {
+  const key = companyKey('वरिष्ठ अभियंता');
+  assert.equal(key, normalizeTextKey('वरिष्ठ अभियंता'));
+  assert.ok(key.includes('ि') || key.includes('े'), `role vowel signs were stripped: ${JSON.stringify(key)}`);
+});
+
+test('two roles differing only in vowel signs do not collide', () => {
+  // The join at :401 matches an interview round to a tracker row by role key.
+  // Collapsing these attaches a round to the wrong opening at the same company.
+  assert.notEqual(companyKey('वरिष्ठ अभियंता'), companyKey('वरिषठ अभियंता'));
+});
+
+test('two agencies differing only in vowel signs get separate via buckets', () => {
+  // groupIdentity keys the channel with companyKey, so a collision here merges
+  // two agencies' confidential rows into one `? (via ...)` group.
+  assert.notEqual(companyKey('कंसल्टिंग'), companyKey('कंसलटिंग'));
+});
+
+test('a Latin role still joins case- and punctuation-insensitively', () => {
+  // The guard for the role leg, matching the company one above.
+  assert.equal(companyKey('Sr. Backend Engineer'), companyKey('sr backend engineer'));
+});
