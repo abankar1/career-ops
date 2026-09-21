@@ -54,12 +54,47 @@ user reviews on GitHub and submits from their own account. --status lists
 hires recorded in the tracker that were never offered a share. --mark records
 the user's answer so the question is never repeated against their wishes.`;
 
+/**
+ * Raised when the anti-nag memory exists and cannot be trusted.
+ *
+ * Deliberately not a silent fallback: the file records which hires the user
+ * declined to share, and an empty memory is indistinguishable from "nobody has
+ * ever been asked". Failing loudly asks the user to fix one file; failing
+ * quietly asks them about a hire they already said no to.
+ */
+class StateError extends Error {
+  constructor(message) { super(message); this.name = 'StateError'; }
+}
+
 /** State file: the entire anti-nag memory. User layer, gitignored with data/. */
 function statePath(root) { return join(root, 'data', '.hired-share-state.json'); }
 function loadState(root) {
   const p = statePath(root);
+  // Absent is a first run — an empty memory is the correct answer.
   if (!existsSync(p)) return { byReport: {} };
-  try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return { byReport: {} }; }
+  let raw;
+  try {
+    raw = readFileSync(p, 'utf8');
+  } catch (err) {
+    throw new StateError(`cannot read ${p} (${err.message})`);
+  }
+  // Unreadable is NOT a first run, and returning an empty memory for it is how
+  // a "never" answer disappears. AGENTS.md's cadence rule is absolute — "If
+  // they say no: --mark never, and honor it — that hire is never brought up
+  // again" — and this file is the only thing that remembers. An empty object
+  // here means every declined hire becomes askable, and the next saveState
+  // persists that, so one unreadable byte erases the record permanently.
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new StateError(`${p} does not contain a JSON object`);
+    }
+    if (!parsed.byReport || typeof parsed.byReport !== 'object') parsed.byReport = {};
+    return parsed;
+  } catch (err) {
+    if (err instanceof StateError) throw err;
+    throw new StateError(`${p} is not valid JSON (${String(err.message).split('\n')[0]})`);
+  }
 }
 function saveState(root, s) {
   // A root on the legacy layout (applications.md at the top, no data/) still
