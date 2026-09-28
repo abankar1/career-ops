@@ -262,3 +262,51 @@ function warnOrFail(resolved) {
 }
 
 for (const dir of cleanup) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+
+// ── the census: every remaining __dirname use is accounted for ──────────────
+//
+// The assertions above name the three report paths and the blacklist, which is
+// this bug. They cannot catch the NEXT one — a new data/ or reports/ path added
+// on __dirname would pass all of them. This module has a DATA_ROOT and a comment
+// stating the rule, and still had four paths that ignored it, so the rule needs
+// something that checks it rather than a comment asking for it.
+//
+// A lint over ONE file, deliberately: other scripts resolve paths against their
+// own directory for good reasons, and judging those needs the context each
+// carries.
+{
+  const src = readFileSync(join(ROOT, 'openrouter-runner.mjs'), 'utf8');
+
+  // The one legitimate use, with its reason. .env ships beside the script and is
+  // read by loadDotenv before any data path is resolved; it is configuration for
+  // the process, not user data, so it does NOT follow the data root.
+  const ALLOWED = [
+    { pattern: /path\.join\(__dirname, '\.env'\)/, why: '.env is process configuration, read beside the script' },
+    { pattern: /^const __dirname = /m, why: 'the declaration itself' },
+  ];
+
+  // Every line mentioning __dirname, minus comments and the allowed uses.
+  const offenders = src.split('\n')
+    .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+    .filter(({ line }) => line.includes('__dirname'))
+    .filter(({ line }) => !line.startsWith('//') && !line.startsWith('*'))
+    .filter(({ line }) => !ALLOWED.some(({ pattern }) => pattern.test(line)));
+
+  if (offenders.length === 0) {
+    pass('every __dirname use in openrouter-runner.mjs is the declaration or .env');
+  } else {
+    fail('these lines resolve a path against the script\'s own directory rather than '
+      + 'the data root — if one of them is deliberate, add it to ALLOWED in this test '
+      + `with its reason:\n    ${offenders.map(({ n, line }) => `${n}: ${line}`).join('\n    ')}`);
+  }
+
+  // And the positive form: the data-layer accessors still go through DATA_ROOT,
+  // so a future edit cannot satisfy the check above by deleting __dirname while
+  // hardcoding a path some other way.
+  if (/function readFile\(relPath\) \{[\s\S]{0,120}path\.join\(DATA_ROOT, relPath\)/.test(src)
+    && /function writeFile\(relPath, content\) \{[\s\S]{0,160}path\.join\(DATA_ROOT, relPath\)/.test(src)) {
+    pass('readFile/writeFile still resolve through DATA_ROOT');
+  } else {
+    fail('readFile/writeFile no longer resolve through DATA_ROOT');
+  }
+}
