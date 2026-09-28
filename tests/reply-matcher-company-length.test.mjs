@@ -58,3 +58,47 @@ for (const [company, text, why] of MUST_MATCH) {
   if (latin === devanagari) pass('a company spelled in Latin and in Devanagari is treated alike');
   else fail(`Tata matches (${latin}) but टाटा does not (${devanagari}) — same name, same length`);
 }
+
+// ── guards: every short-name behaviour the fix must NOT weaken ───────────────
+//
+// The gate's job is to stop a two- or three-character needle matching inside a
+// longer word. Counting marks makes FEWER names short, so the risk this fix
+// carries is that it hands some name the substring path that should have kept
+// the boundary. Latin, Han, Hiragana and Katakana names carry no combining
+// marks, so their counts cannot move -- these assertions state that as a
+// property of the code rather than a claim in a commit message, and they pass
+// both before and after.
+{
+  const MUST_NOT_MATCH = [
+    ['HP', 'We use PHP extensively here.', 'the bug the rule exists for: HP inside PHP'],
+    ['HP', 'Our SHOP is hiring.', 'HP inside a longer word, different position'],
+    ['3M', 'A team of 30 Modelers joined.', '3M must not match across a word break'],
+    ['AI', 'This role involves no MAINTENANCE.', 'two-letter name inside a longer word'],
+  ];
+  for (const [company, text, why] of MUST_NOT_MATCH) {
+    if (!checkCompanyMatch(text, company)) pass(`refuses: ${company} — ${why}`);
+    else fail(`${company} matched in ${JSON.stringify(text)} — ${why}`);
+  }
+
+  const STILL_MATCH = [
+    ['HP', 'Thank you for applying to HP.', 'a real short-name mention, on a boundary'],
+    ['IBM', 'Your IBM application is progressing.', 'three-letter name on a boundary'],
+    ['3M', 'We received your 3M application.', 'digit-initial short name'],
+    // Han, Hiragana and Katakana keep the substring path (NO_WORD_SEPARATOR_RE):
+    // those scripts run without separators, so a boundary could never hold.
+    ['腾讯', '我们是腾讯的招聘团队', 'Han name inside unseparated text'],
+    ['ソニー', 'ソニーの採用担当です', 'Katakana name inside unseparated text'],
+  ];
+  for (const [company, text, why] of STILL_MATCH) {
+    if (checkCompanyMatch(text, company)) pass(`still matches: ${company} — ${why}`);
+    else fail(`${company} stopped matching in ${JSON.stringify(text)} — ${why}`);
+  }
+
+  // Placeholders stay refused: `?` is the documented unknown-employer marker
+  // (#1596), and it must not gain a match through the length gate either.
+  for (const ph of ['?', '—', '-']) {
+    if (!checkCompanyMatch('Do you have any questions? Please reply.', ph)) {
+      pass(`refuses the placeholder company ${JSON.stringify(ph)}`);
+    } else fail(`placeholder ${JSON.stringify(ph)} matched as a company name`);
+  }
+}
