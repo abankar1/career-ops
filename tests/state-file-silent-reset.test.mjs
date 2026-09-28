@@ -3,13 +3,15 @@
 //
 // hired-share.mjs's data/.hired-share-state.json is, in its own words, "the
 // entire anti-nag memory": which hires the user was asked about, and which they
-// said never to bring up again. Its loader used to answer an unreadable file
-// with an empty object, which is indistinguishable from "this is a first run"
-// — and the next write persisted that emptiness, so the loss was permanent.
+// said never to bring up again. intake.mjs's data/intake-state.json is the
+// ledger of documents whose proposals the user already reviewed. Both loaders
+// used to answer an unreadable file with an empty object, which is
+// indistinguishable from "this is a first run" — and the next write persisted
+// that emptiness, so the loss was permanent.
 //
 // AGENTS.md makes the hired-share case absolute: "If they say no: --mark never,
 // and honor it — that hire is never brought up again." A silent reset breaks
-// that rule without anyone finding out. So the suite below pins both halves:
+// that rule without anyone finding out. So each suite below pins both halves:
 // a corrupt file is refused (loudly, exit 1, original bytes untouched), and an
 // absent file is still a first run.
 
@@ -167,6 +169,79 @@ const cleanup = [];
   if (existsSync(statePath) && JSON.parse(readFileSync(statePath, 'utf8')).byReport['7'].status === 'never') {
     pass('the answer is persisted after creating data/');
   } else fail('the "never" answer was reported as recorded but is not on disk');
+}
+
+// ── intake: a corrupt ledger is refused, not treated as empty ───────────────
+{
+  const dir = makeWorkspace('intake-corrupt-');
+  cleanup.push(dir);
+  mkdirSync(join(dir, 'documents'), { recursive: true });
+  writeFileSync(join(dir, 'documents', 'master-cv.md'), '# Master CV\n\nTen years of things.\n');
+  const statePath = join(dir, 'data', 'intake-state.json');
+  const corrupt = '{"ingested": {"documents/master-cv.md": {"hash": "abc';
+  writeFileSync(statePath, corrupt);
+
+  const r = runScript('intake.mjs', ['--summary'], dir);
+  if (r.code !== 0) pass('intake exits nonzero on an unreadable ingest ledger');
+  else fail(`intake exited 0 with a corrupt ledger; stdout: ${r.stdout.slice(0, 200)}`);
+
+  if (/not valid JSON/i.test(r.stderr) && r.stderr.includes('intake-state.json')) {
+    pass('the error names the ledger and says it is not valid JSON');
+  } else fail(`error message does not identify the problem: ${JSON.stringify(r.stderr.slice(0, 300))}`);
+
+  if (!/^\s*Error:|\n\s+at /.test(r.stderr)) pass('the ledger error is a message, not a stack trace');
+  else fail(`stack trace leaked to the user: ${r.stderr.slice(0, 300)}`);
+
+  if (!/\bnew\b/.test(r.stdout)) pass('no document is re-proposed as new off a ledger it cannot read');
+  else fail(`intake proposed documents anyway: ${r.stdout.slice(0, 300)}`);
+
+  if (readFileSync(statePath, 'utf8') === corrupt) pass('the damaged ledger is left exactly as found');
+  else fail('intake rewrote the damaged ledger');
+}
+
+// ── intake: absent ledger is a first run; a healthy one is honored ──────────
+{
+  const dir = makeWorkspace('intake-healthy-');
+  cleanup.push(dir);
+  mkdirSync(join(dir, 'documents'), { recursive: true });
+  writeFileSync(join(dir, 'documents', 'master-cv.md'), '# Master CV\n\nTen years of things.\n');
+
+  const first = runScript('intake.mjs', ['--summary'], dir);
+  if (first.code === 0 && /master-cv\.md\s+new\b/.test(first.stdout)) {
+    pass('an absent ledger is a first run — the document reads as new');
+  } else fail(`first run did not report the document as new: ${first.stdout.slice(0, 300)}${first.stderr.slice(0, 200)}`);
+
+  const committed = runScript('intake.mjs', ['--commit', 'master-cv.md'], dir);
+  if (committed.code === 0) pass('--commit records the reviewed source');
+  else fail(`--commit failed: ${committed.stderr.slice(0, 200)}`);
+
+  // Guard: the reason the ledger exists at all.
+  const second = runScript('intake.mjs', ['--summary'], dir);
+  if (/master-cv\.md\s+ingested\b/.test(second.stdout)) {
+    pass('a reviewed document is not proposed again');
+  } else fail(`reviewed document came back as unreviewed: ${second.stdout.slice(0, 300)}`);
+
+  const strays = readdirSync(join(dir, 'data')).filter((f) => f.endsWith('.tmp'));
+  if (strays.length === 0) pass('the ledger write leaves no .tmp file behind');
+  else fail(`stray temp files after commit: ${strays.join(', ')}`);
+}
+
+// ── intake: JSON that parses but is not a ledger object ────────────────────
+{
+  for (const [label, body] of [['an array', '[]'], ['null', 'null'], ['a string', '"{}"']]) {
+    const dir = makeWorkspace('intake-shape-');
+    cleanup.push(dir);
+    mkdirSync(join(dir, 'documents'), { recursive: true });
+    writeFileSync(join(dir, 'documents', 'master-cv.md'), '# CV\n\nthings\n');
+    writeFileSync(join(dir, 'data', 'intake-state.json'), body);
+    const r = runScript('intake.mjs', ['--summary'], dir);
+    if (r.code !== 0 && r.stderr.includes('intake-state.json')) {
+      pass(`${label} in the ledger is refused, and the message names the ledger`);
+    } else {
+      fail(`${label}: expected a refusal naming the ledger, got code ${r.code} / `
+        + `${JSON.stringify(r.stderr.slice(0, 160))} / stdout ${r.stdout.slice(0, 120)}`);
+    }
+  }
 }
 
 for (const dir of cleanup) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
