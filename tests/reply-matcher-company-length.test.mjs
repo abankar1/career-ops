@@ -12,6 +12,7 @@
 // This file asserts the count, the mentions that used to be refused because of
 // it, and -- separately -- every short-name behaviour the fix must NOT weaken.
 
+import { readFileSync } from 'fs';
 import { checkCompanyMatch } from '../reply-matcher.mjs';
 import { pass, fail } from './helpers.mjs';
 
@@ -100,5 +101,43 @@ for (const [company, text, why] of MUST_MATCH) {
     if (!checkCompanyMatch('Do you have any questions? Please reply.', ph)) {
       pass(`refuses the placeholder company ${JSON.stringify(ph)}`);
     } else fail(`placeholder ${JSON.stringify(ph)} matched as a company name`);
+  }
+}
+
+// ── the four predicates move as a unit, or this fails ───────────────────────
+//
+// reply-matcher.mjs defines "word material" in four places, and its own comment
+// says they have to move together -- updating some of them is what produced
+// #3535. Three already counted \p{M}; the length gate did not, and nothing was
+// watching. The behavioural assertions above cannot catch the next drift,
+// because a fifth predicate added tomorrow, or one of these four quietly
+// narrowed, breaks a case no fixture here happens to cover.
+//
+// So read the source and require every character class that spans \p{L} and
+// \p{N} to include \p{M} between them. Source-reading is the same instrument
+// tests/main-guard-convention.test.mjs uses for its own repo-wide rule.
+{
+  const src = readFileSync(new URL('../reply-matcher.mjs', import.meta.url), 'utf8');
+
+  // Any bracketed class mentioning both \p{L} and \p{N}, negated or not.
+  const classes = src.match(/\[[^\]\n]*\\p\{L\}[^\]\n]*\\p\{N\}[^\]\n]*\]/g) || [];
+  if (classes.length >= 4) pass(`found ${classes.length} word-material character classes to check`);
+  else fail(`expected at least 4 word-material classes, found ${classes.length} — has the file been restructured?`);
+
+  const missing = classes.filter((c) => !c.includes('\\p{M}'));
+  if (missing.length === 0) {
+    pass('every word-material class in reply-matcher.mjs counts \\p{M}');
+  } else {
+    fail('these character classes span \\p{L} and \\p{N} but drop combining marks, '
+      + `so they disagree with the rest of the file: ${missing.join('  ')}`);
+  }
+
+  // The specific predicate this PR fixed, named so a failure points at it
+  // directly rather than at the census above.
+  if (/const wordMaterial = company\.replace\(\/\[\^\\p\{L\}\\p\{M\}\\p\{N\}\]\/gu, ''\)/.test(src)) {
+    pass("checkCompanyMatch's length gate still measures word material, marks included");
+  } else {
+    fail("checkCompanyMatch's length gate no longer strips to \\p{L}\\p{M}\\p{N} — "
+      + 'if it was rewritten, keep \\p{M} in the count or the Indic cases above regress');
   }
 }
