@@ -4,11 +4,16 @@
 // lib/local-today.mjs exists because "what day is it" has a wrong answer:
 // `new Date().toISOString().slice(0, 10)` is the UTC day, so west of Greenwich
 // an evening run answers with TOMORROW. #2765 fixed followup-seed, #2932
-// set-status, #3070 the gates. outcome.mjs, archive-posting.mjs and
-// application-answers.mjs were not in those sweeps, and outcome.mjs is the worst
-// of the three: it writes its journal with the UTC day and, in the same
-// invocation, spawns set-status.mjs, which writes data/status-log.tsv with the
-// LOCAL day. One event, two records, a day apart.
+// set-status, #3070 the gates, and outcome.mjs's today() has since been
+// converted too. archive-posting.mjs and application-answers.mjs were in none of
+// those sweeps and still read the UTC day; this file fixes those two.
+//
+// outcome.mjs is covered here as a GUARD rather than a fix. It is the script that
+// shows why the rule matters: it writes its journal with today() and, in the same
+// invocation, spawns set-status.mjs, which stamps data/status-log.tsv with
+// localToday(). If today() ever went back to UTC, one event would again produce
+// two records a day apart -- so the agreement between those two files is worth an
+// assertion even though both sides are correct today.
 //
 // ── How these assertions avoid the trap that hid the bug ────────────────────
 //
