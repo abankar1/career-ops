@@ -232,3 +232,35 @@ function runScript(script, args, environment) {
 }
 
 for (const dir of cleanup) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+
+// ── the census: no user-layer path resolves against the script's directory ──
+//
+// The assertions above name the four paths this bug touched. They cannot catch the
+// NEXT one — a new data/ path added on __dirname passes all of them, which is
+// exactly how these four survived while sibling scripts were converted.
+//
+// A lint over these two files only. Other scripts resolve paths against their own
+// directory for good reasons (a shipped template, a sibling module, .env), and
+// judging those needs the context each one carries.
+{
+  for (const file of ['reply-watch.mjs', 'paste-reply.mjs']) {
+    const src = readFileSync(join(ROOT, file), 'utf8');
+    const offenders = src.split('\n')
+      .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+      .filter(({ line }) => line.includes('__dirname'))
+      .filter(({ line }) => !line.startsWith('//') && !line.startsWith('*'));
+
+    if (offenders.length === 0) {
+      pass(`${file} builds no path from __dirname`);
+    } else {
+      fail(`${file} still resolves a path against its own directory — if one is `
+        + 'deliberate, say so in a comment on that line so this check can be '
+        + `narrowed rather than deleted:\n    ${offenders.map(({ n, line }) => `${n}: ${line}`).join('\n    ')}`);
+    }
+
+    // The positive form, so the check above cannot be satisfied by deleting
+    // __dirname and hardcoding a path some other way.
+    if (/getCareerOpsRoot\(\)/.test(src)) pass(`${file} resolves its user-layer paths through getCareerOpsRoot()`);
+    else fail(`${file} no longer calls getCareerOpsRoot()`);
+  }
+}
