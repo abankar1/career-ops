@@ -12,9 +12,14 @@ export const dynamic = "force-dynamic";
 // implementation in TypeScript is how the web's numbers start disagreeing with
 // the CLI's. Mirrors /api/followups and /api/doctor.
 //
-// stats.mjs prints JSON by DEFAULT and rejects `--json` as an unknown flag, so
-// this passes no flags at all. Worth stating, because every sibling route here
-// spawns `[script, "--json"]` and copying that shape silently fails.
+// stats.mjs prints JSON by DEFAULT and rejects a --json flag outright, so this
+// passes no flags at all. Worth stating, because every sibling route here spawns
+// the script with that flag and copying the shape silently fails.
+//
+// (The flag is named without quotes on purpose: tests/web-core-argv-contract
+// greps this file for quoted --flag literals and requires each to appear in the
+// argv it probes, so quoting it here would register a flag this route must
+// never pass.)
 export async function GET() {
   const script = rootScript("stats");
   if (!fs.existsSync(script)) return Response.json({ available: false, stats: null });
