@@ -1835,12 +1835,12 @@ function main() {
 // Derived from the flags this file actually accepts, so `--help` cannot
 // describe an option that does not exist.
 const USAGE = `Usage:
-  node salary-gap.mjs [--summary] [--stated-for <role>] [--self-test]
+  node salary-gap.mjs [--summary] [--stated-for <tracker#>] [--self-test]
 
-  --summary            human-readable table instead of JSON
-  --stated-for <role>  compare against a stated target for one role
-  --self-test          run the built-in checks
-  --help, -h   print this and exit`;
+  --summary                human-readable table instead of JSON
+  --stated-for <tracker#>  prior stated-comp observations for one tracked row
+  --self-test              run the built-in checks
+  --help, -h               print this and exit`;
 
 if (isMainModule(import.meta.url)) {
   // BEFORE any work. Unhandled, `--help` fell through to the analysis: this
