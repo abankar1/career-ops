@@ -16,6 +16,21 @@
 // dropping the caveat turns a hedged figure into a confident one. Those rules
 // are the part worth testing, so they live here rather than inside JSX.
 
+/**
+ * @typedef {{key: string, label: string, value: number}} FunnelStage
+ * @typedef {{key: string, label: string, value: number|null}} FunnelRate
+ *   `value: null` means the rate has no denominator — absent, not zero.
+ * @typedef {{tracked: number, active: number, offers: number, avgScore: number|null, topScore: number|null}} ProgressTotals
+ * @typedef {{available: boolean, totals: ProgressTotals, funnel: {stages: FunnelStage[], rates: FunnelRate[]}, provisional: boolean}} ProgressModel
+ *
+ * @typedef {Record<string, string|number|undefined>} BreakdownRow
+ * @typedef {{key: "threshold", label: string, value: number|null, note: string|null, sampleSize: number|null, provisional: boolean}} ThresholdSection
+ * @typedef {{key: string, label: string, rows: BreakdownRow[], dimension: string, partial: boolean}} BreakdownSection
+ * @typedef {{key: "vendor", label: string, rows: BreakdownRow[], claimable: boolean, coveragePct: number, minSampleForClaim: number, identified: number, citation: string|null}} VendorSection
+ * @typedef {ThresholdSection|BreakdownSection|VendorSection} StatsSection
+ * @typedef {{state: "unavailable"|"below-threshold"|"ready", progress: {current: number, threshold: number|null, message: string}|null, sections: StatsSection[]}} StatsModel
+ */
+
 /** A rate that cannot be computed is absent, never 0. */
 const NO_RATE = null;
 
@@ -40,7 +55,7 @@ export function rateOrNull(rate, denominator) {
  * The progress view's model, from stats.mjs's payload.
  *
  * @param {object|null} stats - Parsed stats.mjs output, or null when unavailable.
- * @returns {{available:boolean, totals:object, funnel:object, provisional:boolean}}
+ * @returns {ProgressModel}
  */
 export function progressModel(stats) {
   const tracker = stats?.tracker ?? null;
@@ -92,7 +107,7 @@ export function progressModel(stats) {
  * threshold and how close the user is, which is more useful than an empty panel.
  *
  * @param {object|null} patterns - Parsed analyze-patterns.mjs output, or null.
- * @returns {{state:"unavailable"|"below-threshold"|"ready", progress:object|null, sections:object[]}}
+ * @returns {StatsModel}
  */
 export function statsModel(patterns) {
   if (!patterns) return { state: "unavailable", progress: null, sections: [] };
@@ -109,6 +124,7 @@ export function statsModel(patterns) {
     };
   }
 
+  /** @type {StatsSection[]} */
   const sections = [];
 
   // Quality threshold. Shown as a recommendation only when the core says the
