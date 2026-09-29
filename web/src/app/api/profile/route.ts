@@ -4,6 +4,7 @@ import * as yaml from "js-yaml";
 import { careerOpsRoot } from "@/lib/career-ops";
 import { atomicWriteWithBackup } from "@/lib/core/safe-write";
 import { isMapping } from "@/lib/portals-config.mjs";
+import { validateProfilePatch } from "@/lib/profile-patch.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,12 +58,24 @@ function patchToProfile(p: ProfilePatch): Record<string, unknown> {
 }
 
 export async function POST(req: Request) {
-  let patch: ProfilePatch;
+  let body: unknown;
   try {
-    patch = (await req.json()) as ProfilePatch;
+    body = await req.json();
   } catch {
     return Response.json({ error: "bad json" }, { status: 400 });
   }
+
+  // Validated BEFORE any filesystem access, so a rejected request leaves
+  // config/profile.yml untouched — no backup written, no temp file to clean up.
+  // The cast this replaced was a compile-time assertion about a value that
+  // arrives at runtime: `{"roles":"backend"}` returned 200 and wrote
+  // `target_roles.primary: backen`, and a JSON `null` threw past the write
+  // handler as a 500. See lib/profile-patch.mjs for why the string case is the
+  // one that mattered.
+  const checked = validateProfilePatch(body);
+  if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
+  const patch = checked.patch as ProfilePatch;
+
   const proposed = patchToProfile(patch);
   if (Object.keys(proposed).length === 0) return Response.json({ error: "nothing to write" }, { status: 400 });
 
