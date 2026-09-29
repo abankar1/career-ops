@@ -216,11 +216,23 @@ function inDataRoot(dir, expr, extraEnv = {}) {
     fail(`blacklist resolved to ${resolved}, expected ${join(dir, 'data', 'model-blacklist.json')}`);
   }
 
+  // Asserted as an INVARIANT, not as a spelling. The first version of this
+  // check required `getCareerOpsRoot(), 'data', 'model-blacklist.json'` on one
+  // line, and failed against an equivalent implementation that split the path
+  // across a BLACKLIST_DIR constant — a test that fails on a correct fix is
+  // worse than no test. What matters is that no blacklist path is built from
+  // the script's own directory; how the join is spelled is the author's call.
   const src = readFileSync(join(ROOT, 'openrouter-runner.mjs'), 'utf8');
-  if (!/BLACKLIST_FILE = path\.join\(__dirname/.test(src) && /getCareerOpsRoot\(\), 'data', 'model-blacklist\.json'/.test(src)) {
-    pass('openrouter-runner builds the blacklist path from the data root');
+  const blacklistLines = src
+    .split('\n')
+    .filter((line) => /BLACKLIST/.test(line) && !line.trim().startsWith('//'));
+  const fromDirname = blacklistLines.filter((line) => line.includes('__dirname'));
+  if (blacklistLines.length > 0 && fromDirname.length === 0) {
+    pass('no blacklist path is built from __dirname');
+  } else if (blacklistLines.length === 0) {
+    fail('no BLACKLIST path found at all — has the constant been renamed?');
   } else {
-    fail('the blacklist path is still built from __dirname');
+    fail(`the blacklist path is still built from __dirname:\n    ${fromDirname.join('\n    ')}`);
   }
 
   // Guard: the module still loads. The blacklist became a lazy accessor because
