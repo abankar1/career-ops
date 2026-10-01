@@ -46,11 +46,48 @@ console.log('\noutcome + archival path — dates follow the local calendar');
 const EAST = 'Pacific/Kiritimati';   // UTC+14
 const WEST = 'Pacific/Midway';       // UTC-11
 
-/** The calendar day in `tz` right now, computed independently of the code under test. */
-function dayIn(tz) {
-  return new Intl.DateTimeFormat('en-CA', {
+/**
+ * The calendar day in `tz`, computed independently of the code under test.
+ *
+ * Assembled from formatToParts() rather than from a formatted string. `en-CA`
+ * renders ISO order on the ICU builds this suite has run on, but that is a
+ * locale-data detail, not a guarantee — a build that renders MM/DD/YYYY would
+ * make every comparison below fail while the code under test was correct, which
+ * is the worst way for a test to be wrong.
+ *
+ * @param {string} tz - IANA zone.
+ * @param {Date} [at] - Instant to read; defaults to now.
+ * @returns {string} YYYY-MM-DD in `tz`.
+ */
+function dayIn(tz, at = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
+  }).formatToParts(at);
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+/**
+ * Run `fn`, and report which local days in `tz` the call spanned.
+ *
+ * A child spawned just before local midnight finishes after it, so a single
+ * dayIn() read taken afterwards can name a different day than the one the child
+ * saw. Both ends are captured and either is accepted — the same hazard
+ * runAcrossUtcDay() exists for in tests/helpers.mjs, for a different midnight.
+ *
+ * Keeping BOTH (rather than widening to "any day") means a genuinely wrong date
+ * still fails: the window is one midnight, not an open set.
+ *
+ * @template T
+ * @param {string} tz
+ * @param {() => T} fn
+ * @returns {{value: T, days: string[]}}
+ */
+function spanningLocalDays(tz, fn) {
+  const before = dayIn(tz);
+  const value = fn();
+  const after = dayIn(tz);
+  return { value, days: before === after ? [before] : [before, after] };
 }
 
 const utcDay = new Date().toISOString().slice(0, 10);
@@ -83,9 +120,15 @@ function makeWorkspace() {
   return dir;
 }
 
-/** Record a hire in `tz`, returning the journal's own date and the ledger's. */
+/**
+ * Record a hire in `tz`.
+ *
+ * @returns {{journalDate: string|null, ledgerDate: string|null, days: string[]}}
+ *   `days` is the local day or days the run spanned — see spanningLocalDays().
+ */
 function recordHire(tz) {
   const dir = makeWorkspace();
+  const before = dayIn(tz);
   execFileSync(NODE, [join(ROOT, 'outcome.mjs'), '1', 'hired', '--json'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -109,7 +152,8 @@ function recordHire(tz) {
     ? (readFileSync(ledgerPath, 'utf8').trim().split('\n').pop().split('\t')[1] ?? null)
     : null;
 
-  return { journalDate, ledgerDate };
+  const after = dayIn(tz);
+  return { journalDate, ledgerDate, days: before === after ? [before] : [before, after] };
 }
 
 // ── outcome.mjs: one event, one date ────────────────────────────────────────
@@ -128,10 +172,15 @@ function recordHire(tz) {
     }
   }
 
-  // …and each is the day the user was actually living through.
+  // …and each is the day the user was actually living through. Compared against
+  // the day(s) the run SPANNED, not against a single read taken afterwards: a
+  // child spawned just before local midnight finishes after it.
   for (const [tz, r] of [[EAST, east], [WEST, west]]) {
-    if (r.journalDate === dayIn(tz)) pass(`${tz}: the journal entry is dated ${dayIn(tz)}, the local day`);
-    else fail(`${tz}: journal dated ${r.journalDate}, but the local calendar day is ${dayIn(tz)}`);
+    if (r.journalDate && r.days.includes(r.journalDate)) {
+      pass(`${tz}: the journal entry is dated ${r.journalDate}, the local day`);
+    } else {
+      fail(`${tz}: journal dated ${r.journalDate}, but the run spanned local day(s) ${r.days.join(' / ')}`);
+    }
   }
 
   // The discriminator. A UTC-derived date is the same string in both zones.
@@ -144,10 +193,13 @@ function recordHire(tz) {
 
 // ── archive-posting.mjs: the capture filename ───────────────────────────────
 //
-// captureFilename() is not exported and archiveUrl() needs a browser, so drive
-// today() where it is reachable: --help exits before any browser work, so the
-// module's own date helper is exercised by importing it in a child pinned to a
-// timezone. This asserts the FUNCTION the filename is built from.
+// Asserted on the REAL filename, not on the expression that builds it.
+// `--dry-run` is documented as "preview filename without saving": it prints the
+// `local:jds/...` reference and returns before any browser or network work, so
+// the actual name is reachable without archiving anything. A source grep would
+// pass on a file that no longer produces what it appears to produce — the same
+// reason the ATS-coverage panel is tested through its route rather than by
+// reading the script.
 {
   const dateFromModule = (tz) => execFileSync(NODE, [
     '--input-type=module', '-e',
@@ -155,22 +207,42 @@ function recordHire(tz) {
     + 'process.stdout.write(localToday());',
   ], { encoding: 'utf8', env: { ...process.env, TZ: tz }, timeout: 30_000 }).trim();
 
-  const east = dateFromModule(EAST);
-  const west = dateFromModule(WEST);
-  if (east === dayIn(EAST) && west === dayIn(WEST) && east !== west) {
+  const east = spanningLocalDays(EAST, () => dateFromModule(EAST));
+  const west = spanningLocalDays(WEST, () => dateFromModule(WEST));
+  if (east.days.includes(east.value) && west.days.includes(west.value) && east.value !== west.value) {
     pass('archive-posting/outcome share localToday(), which tracks the local day in both zones');
   } else {
-    fail(`localToday() gave ${east} in ${EAST} and ${west} in ${WEST}; `
-      + `expected ${dayIn(EAST)} and ${dayIn(WEST)}`);
+    fail(`localToday() gave ${east.value} in ${EAST} and ${west.value} in ${WEST}; `
+      + `the runs spanned ${east.days.join(' / ')} and ${west.days.join(' / ')}`);
   }
 
-  // The capture name must carry that date. Source-level, because the function is
-  // module-private: assert it is built from today() and that today() is local.
-  const src = readFileSync(join(ROOT, 'archive-posting.mjs'), 'utf8');
-  if (/const base = `\$\{today\(\)\}_/.test(src) && /function today\(\)\s*\{\s*return localToday\(\);/.test(src)) {
-    pass('the capture filename is built from today(), and today() returns localToday()');
+  // The capture name itself, from a real run in each zone.
+  const captureName = (tz) => {
+    const out = execFileSync(
+      NODE,
+      [join(ROOT, 'archive-posting.mjs'), '--dry-run', 'https://boards.greenhouse.io/openai/jobs/123'],
+      { encoding: 'utf8', env: { ...process.env, TZ: tz }, timeout: 30_000 },
+    );
+    return (out.match(/local:jds\/(\d{4}-\d{2}-\d{2})_/) || [])[1] ?? null;
+  };
+
+  const eastName = spanningLocalDays(EAST, () => captureName(EAST));
+  const westName = spanningLocalDays(WEST, () => captureName(WEST));
+
+  for (const [tz, r] of [[EAST, eastName], [WEST, westName]]) {
+    if (r.value && r.days.includes(r.value)) {
+      pass(`${tz}: the capture is named for ${r.value}, the local day`);
+    } else {
+      fail(`${tz}: capture named for ${r.value}, but the run spanned local day(s) ${r.days.join(' / ')}`);
+    }
+  }
+
+  // The hour-independent half: a UTC-derived name is the same string in both
+  // zones, whatever time it is.
+  if (eastName.value && westName.value && eastName.value !== westName.value) {
+    pass('the capture filename moves with the timezone, so it is not the UTC day');
   } else {
-    fail('archive-posting.mjs no longer builds the capture name from a local today()');
+    fail(`both zones named the capture ${eastName.value} — the UTC day (${utcDay}), not a local one`);
   }
 }
 
@@ -188,15 +260,18 @@ function recordHire(tz) {
     return (out.match(/\d{4}-\d{2}-\d{2}/) || [])[0] ?? null;
   };
 
-  const east = renderedDate(EAST);
-  const west = renderedDate(WEST);
+  const east = spanningLocalDays(EAST, () => renderedDate(EAST));
+  const west = spanningLocalDays(WEST, () => renderedDate(WEST));
 
-  for (const [tz, got] of [[EAST, east], [WEST, west]]) {
-    if (got === dayIn(tz)) pass(`${tz}: the default answer date is ${dayIn(tz)}, the local day`);
-    else fail(`${tz}: default answer date was ${got}, local calendar day is ${dayIn(tz)}`);
+  for (const [tz, r] of [[EAST, east], [WEST, west]]) {
+    if (r.value && r.days.includes(r.value)) {
+      pass(`${tz}: the default answer date is ${r.value}, the local day`);
+    } else {
+      fail(`${tz}: default answer date was ${r.value}, but the run spanned local day(s) ${r.days.join(' / ')}`);
+    }
   }
-  if (east !== west) pass('the default answer date moves with the timezone');
-  else fail(`both zones rendered ${east} — the UTC day (${utcDay}), not a local one`);
+  if (east.value !== west.value) pass('the default answer date moves with the timezone');
+  else fail(`both zones rendered ${east.value} — the UTC day (${utcDay}), not a local one`);
 
   // Guard: an explicit date is passed through untouched. The fix changes only
   // what "no date given" resolves to.
