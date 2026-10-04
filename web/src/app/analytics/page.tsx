@@ -32,7 +32,45 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   // page, so a stale or hand-edited link still lands somewhere useful.
   const view: View = (VIEWS as readonly string[]).includes(String(raw)) ? (String(raw) as View) : "progress";
 
+  // Only the count is shared with the subheading; everything each view needs to
+  // read, it reads for itself. Progress reaches into the core to recover funnel
+  // history, and Insights renders none of that — so that read belongs inside
+  // ProgressView, not out here where an incomplete core install would take the
+  // whole route down with it.
   const { applications } = pipelineSummary();
+  const total = applications.length;
+
+  return (
+    <div className="mx-auto max-w-5xl px-6 py-10">
+      <h1 className="font-display text-2xl tracking-tight text-landing">Analytics</h1>
+      <p className="mt-1 text-sm text-muted">Across {total} tracked evaluation{total === 1 ? "" : "s"}.</p>
+
+      <div className="mt-5 flex flex-wrap gap-1 border-b border-border">
+        {([
+          { id: "progress", label: "Progress" },
+          { id: "insights", label: "Insights" },
+        ] as const).map((t) => (
+          <Link
+            key={t.id}
+            href={t.id === "progress" ? "/analytics" : `/analytics?view=${t.id}`}
+            aria-current={view === t.id ? "page" : undefined}
+            className={
+              view === t.id
+                ? "-mb-px border-b-2 border-brand px-3 py-2 text-sm text-brand-text"
+                : "-mb-px border-b-2 border-transparent px-3 py-2 text-sm text-muted transition-colors hover:text-foreground"
+            }
+          >
+            {t.label}
+          </Link>
+        ))}
+      </div>
+
+      {view === "insights" ? <SearchInsights /> : <ProgressView applications={applications} />}
+    </div>
+  );
+}
+
+async function ProgressView({ applications }: { applications: ReturnType<typeof pipelineSummary>["applications"] }) {
   const statusLog = readStatusLog();
   const total = applications.length;
 
@@ -68,34 +106,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   );
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <h1 className="font-display text-2xl tracking-tight text-landing">Analytics</h1>
-      <p className="mt-1 text-sm text-muted">Across {total} tracked evaluation{total === 1 ? "" : "s"}.</p>
-
-      <div className="mt-5 flex flex-wrap gap-1 border-b border-border">
-        {([
-          { id: "progress", label: "Progress" },
-          { id: "insights", label: "Insights" },
-        ] as const).map((t) => (
-          <Link
-            key={t.id}
-            href={t.id === "progress" ? "/analytics" : `/analytics?view=${t.id}`}
-            aria-current={view === t.id ? "page" : undefined}
-            className={
-              view === t.id
-                ? "-mb-px border-b-2 border-brand px-3 py-2 text-sm text-brand-text"
-                : "-mb-px border-b-2 border-transparent px-3 py-2 text-sm text-muted transition-colors hover:text-foreground"
-            }
-          >
-            {t.label}
-          </Link>
-        ))}
-      </div>
-
-      {view === "insights" ? (
-        <SearchInsights />
-      ) : (
-        <>
+    <>
       {/* headline stats */}
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat value={total} label="evaluated" />
@@ -142,9 +153,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
       {/* The core's cumulative funnel and conversion rates. Last, because it is
           the one block that waits on a spawned script. */}
       <FunnelRates />
-        </>
-      )}
-    </div>
+    </>
   );
 }
 
