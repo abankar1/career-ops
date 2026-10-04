@@ -20,7 +20,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { execFileSync } from 'child_process';
-import { pass, fail, ROOT, NODE } from './helpers.mjs';
+import { pass, fail, warn, ROOT, NODE } from './helpers.mjs';
 
 console.log('\nreply-watch + paste-reply — user-layer paths follow the data root');
 
@@ -41,12 +41,22 @@ const CANDIDATE = [{
   date: '2026-09-20',
 }];
 
+// The shape reply-watch.mjs's own loadFollowups() parses, not the one
+// data/follow-ups.md shows a human. It reads positionally and REQUIRES
+// `parts[2]` to be an integer application number:
+//
+//     num | appNum | date | company | role | channel | contact | notes
+//
+// The first version of this fixture put the company in that column, so
+// `parseInt('Acme Corp')` was NaN and every row was skipped — the file was
+// written to the data root and then parsed into nothing, which made the
+// follow-up leg of this suite assert about an empty list.
 const FOLLOWUPS = [
   '# Follow-ups',
   '',
-  '| # | Company | Role | Applied | Next follow-up | Last contact | Notes |',
-  '|---|---------|------|---------|----------------|--------------|-------|',
-  '| 1 | Acme Corp | Senior Backend Engineer | 2026-09-01 | 2026-09-08 | 2026-09-01 | seeded |',
+  '| # | App | Date | Company | Role | Channel | Contact | Notes |',
+  '|---|-----|------|---------|------|---------|---------|-------|',
+  '| 1 | 1 | 2026-09-08 | Acme Corp | Senior Backend Engineer | Email | recruiting@acmecorp.com | seeded |',
   '',
 ].join('\n');
 
@@ -81,11 +91,10 @@ function env(root, extra = {}) {
   };
 }
 
-// The checkout's own ledger. Snapshotted rather than assumed absent, and
-// restored if a run modifies it -- a suite must not edit the developer's data
-// even while proving that the code under test does.
+// The checkout's own ledger. Only ever probed with existsSync — never read,
+// never written, never restored. A suite must not touch a developer's data even
+// to prove that the code under test does not.
 const REPO_LEDGER = join(ROOT, 'data', 'reply-candidates.json');
-const snapshot = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : null);
 function runScript(script, args, environment) {
   try {
     return {
@@ -157,7 +166,7 @@ function runScript(script, args, environment) {
   writeFileSync(join(dir, 'mail.txt'),
     'Subject: Interview at Acme Corp\nFrom: recruiting@acmecorp.com\n\nWe would like to schedule an interview.\n');
 
-  const repoLedgerBefore = snapshot(REPO_LEDGER);
+  const repoLedgerExisted = existsSync(REPO_LEDGER);
   const pasted = runScript('paste-reply.mjs', ['--file', join(dir, 'mail.txt')], env(dir));
   if (pasted.code === 0) pass('paste-reply accepts a pasted reply');
   else fail(`paste-reply failed: ${pasted.stderr.slice(0, 200)}`);
@@ -169,20 +178,28 @@ function runScript(script, args, environment) {
   // Nothing may be written into the checkout: that is the Data Contract's
   // system/user split, and the old default put user content in the system layer.
   //
-  // Asserted as UNCHANGED, not as absent. In the default layout the data root IS
-  // the checkout, so a developer running this suite may legitimately have their
-  // own data/reply-candidates.json -- an absence assertion would fail for them
-  // with the fix in place. The snapshot is taken before the run above, and
-  // restored here, because paste-reply APPENDS: without the fix this very
-  // assertion's own run is what adds an entry to the developer's real ledger.
-  if (repoLedgerBefore === snapshot(REPO_LEDGER)) {
-    pass('the repository checkout ledger is untouched');
+  // The first version of this SNAPSHOTTED the developer's real ledger and
+  // restored it on failure. That is a repair, not a prevention — a regression
+  // still wrote into their file first, and a run killed between the write and
+  // the restore left the damage behind. (It happened to me once while writing
+  // this.) So the assertion no longer touches that file at all.
+  //
+  // Where the checkout ledger does NOT exist — CI, a fresh clone — absence after
+  // the run is a clean, strong assertion. Where it DOES exist, it is the
+  // developer's own data in the default layout, and nothing can distinguish our
+  // write from their content without reading and rewriting it, so the check is
+  // skipped and says so. The positive assertion above (the ledger landed under
+  // the data root) carries the invariant in both cases: one write, one path.
+  if (!repoLedgerExisted) {
+    if (!existsSync(REPO_LEDGER)) {
+      pass('nothing was written into the repository checkout');
+    } else {
+      fail('paste-reply created data/reply-candidates.json in the repo — '
+        + 'user content in the system layer');
+    }
   } else {
-    fail('paste-reply wrote into the repo ledger (data/reply-candidates.json) — '
-      + 'user content in the system layer');
-    // Put it back: without the fix, this assertion's own run is what damaged it.
-    if (repoLedgerBefore === null) rmSync(REPO_LEDGER, { force: true });
-    else writeFileSync(REPO_LEDGER, repoLedgerBefore);
+    warn('the checkout has its own data/reply-candidates.json (default layout) — '
+      + 'skipping the untouched-checkout check rather than reading or rewriting a developer\'s ledger');
   }
 
   // The handoff paste-reply's own output promises: "Next: run node reply-watch.mjs".
