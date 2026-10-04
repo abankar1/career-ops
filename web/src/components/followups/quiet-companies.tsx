@@ -35,10 +35,21 @@ export function QuietCompanies() {
     return <div className="mt-8 h-24 w-full animate-pulse rounded-2xl bg-muted/25" aria-hidden />;
   }
 
-  // Silent when the check could not run: this is a secondary panel on a page
-  // that works without it, and a missing script is not something the reader can
-  // act on from here.
-  if (!checkRan(model)) return null;
+  // A failed check is SHOWN, not hidden. Returning null here made the panel
+  // disappear after the loading state, which on a page about chasing reads as
+  // "nobody has gone quiet" — the reassuring answer, given for the one reason
+  // that cannot support it. The whole point of this panel is that silence and
+  // not-knowing look different.
+  if (!checkRan(model)) {
+    return (
+      <section className="mt-8 rounded-2xl border border-dashed border-border bg-surface/30 px-5 py-4">
+        <Header courtesyDays={null} />
+        <p className="mt-2 text-sm text-muted">
+          This check didn&apos;t run, so nothing here says whether anyone has gone quiet.
+        </p>
+      </section>
+    );
+  }
 
   if (model.companies.length === 0) {
     return (
@@ -47,6 +58,11 @@ export function QuietCompanies() {
         <p className="mt-2 text-sm text-muted">
           Nothing has gone quiet past the threshold{model.checked > 0 ? ` across ${model.checked} compan${model.checked === 1 ? "y" : "ies"}` : ""}.
         </p>
+        {/* The caveats belong here MORE than on the populated panel, not less: an
+            "all clear" drawn from a partial check is the reading most likely to
+            be believed, and the core's warnings are what say the check was
+            partial. */}
+        <Caveats warnings={model.warnings} disclaimer={model.disclaimer} />
       </section>
     );
   }
@@ -61,18 +77,29 @@ export function QuietCompanies() {
         ))}
       </div>
 
-      {model.warnings.map((w, i) => (
+      <Caveats warnings={model.warnings} disclaimer={model.disclaimer} />
+    </section>
+  );
+}
+
+/**
+ * The core's warnings and its disclaimer, shared by the populated and empty
+ * panels so neither can quietly drop them.
+ */
+function Caveats({ warnings, disclaimer }: { warnings: string[]; disclaimer: string | null }) {
+  return (
+    <>
+      {warnings.map((w, i) => (
         <p key={i} className="mt-3 text-xs text-muted">
           {w}
         </p>
       ))}
-
-      {model.disclaimer && (
+      {disclaimer && (
         // Straight from the payload. Not styled as fine print: it is the
         // sentence that keeps a day count from reading as a verdict.
-        <p className="mt-4 border-t border-border pt-3 text-xs text-faint">{model.disclaimer}</p>
+        <p className="mt-4 border-t border-border pt-3 text-xs text-faint">{disclaimer}</p>
       )}
-    </section>
+    </>
   );
 }
 
@@ -88,16 +115,21 @@ function Header({ courtesyDays }: { courtesyDays: number | null }) {
 
 function Row({ c }: { c: QuietCompany }) {
   const [copied, setCopied] = useState(false);
+  // Shown when the clipboard is unavailable — a denied permission, a
+  // non-secure origin, an older browser. The row is the whole point of the
+  // button, so failing silently leaves the user with no way to get it; this
+  // puts it on screen as selectable text instead.
+  const [fallback, setFallback] = useState<string | null>(null);
 
   const copy = async () => {
     if (!c.blacklistRow) return;
     try {
       await navigator.clipboard.writeText(c.blacklistRow);
       setCopied(true);
+      setFallback(null);
       setTimeout(() => setCopied(false), 1600);
     } catch {
-      // A denied clipboard permission is not worth an error state here; the row
-      // is still selectable in the title attribute.
+      setFallback(c.blacklistRow);
     }
   };
 
@@ -126,6 +158,14 @@ function Row({ c }: { c: QuietCompany }) {
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           {copied ? "Copied" : "Copy blacklist row"}
         </button>
+      )}
+      {fallback && (
+        <div className="w-full">
+          <p className="text-xs text-muted">Couldn&apos;t reach the clipboard — select and copy:</p>
+          <code className="mt-1 block w-full select-all overflow-x-auto rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[11px] text-foreground">
+            {fallback}
+          </code>
+        </div>
       )}
     </div>
   );

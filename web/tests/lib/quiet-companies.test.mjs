@@ -103,6 +103,36 @@ test("nothing quiet is different from the check not running", () => {
   assert.equal(quietModel(undefined).reason, "unavailable");
 });
 
+test("an empty result still carries the caveats", () => {
+  // The panel renders warnings and the disclaimer in BOTH the populated and the
+  // empty state. An "all clear" drawn from a partial check is the reading most
+  // likely to be believed, and the warnings are what say the check was partial —
+  // so dropping them there matters more than dropping them on a populated panel,
+  // not less.
+  const m = quietModel(payload({
+    flags: [],
+    warnings: ["2 interview rounds have a placeholder company"],
+  }));
+  assert.equal(m.companies.length, 0);
+  assert.deepEqual(m.warnings, ["2 interview rounds have a placeholder company"]);
+  assert.equal(m.disclaimer, DISCLAIMER, "an empty result is still an elapsed-time observation");
+});
+
+test("a failed check is distinguishable from an empty one", () => {
+  // Both render a panel; only one of them is allowed to be reassuring.
+  const empty = quietModel(payload({ flags: [] }));
+  const failed = quietModel({ available: false, reason: "unparseable", data: null });
+
+  assert.equal(checkRan(empty), true);
+  assert.equal(checkRan(failed), false);
+  // The failed one knows nothing — not a count, not a threshold, not a
+  // disclaimer — so the component has nothing with which to imply all-clear.
+  assert.equal(failed.checked, 0);
+  assert.equal(failed.courtesyDays, null);
+  assert.equal(failed.disclaimer, null);
+  assert.deepEqual(failed.warnings, []);
+});
+
 test("warnings from the core survive", () => {
   // The core warns about placeholder interview rows it had to skip; dropping
   // that would present a partial check as a complete one.
