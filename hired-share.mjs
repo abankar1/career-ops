@@ -89,7 +89,16 @@ function loadState(root) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new StateError(`${p} does not contain a JSON object`);
     }
-    if (!parsed.byReport || typeof parsed.byReport !== 'object') parsed.byReport = {};
+    // ABSENT is fine — a file written before this key existed, or one that has
+    // only ever recorded nothing, is an empty memory and `{}` is the right
+    // answer. PRESENT BUT NOT AN OBJECT is the same reset one level down: a
+    // string or an array here was silently replaced with `{}` and then written
+    // back by saveState, dropping every declined hire exactly as a corrupt file
+    // used to. Refuse it for the same reason the top level is refused.
+    if (parsed.byReport === undefined || parsed.byReport === null) parsed.byReport = {};
+    else if (typeof parsed.byReport !== 'object' || Array.isArray(parsed.byReport)) {
+      throw new StateError(`${p} has a "byReport" that is not an object — fix or delete it.`);
+    }
     return parsed;
   } catch (err) {
     if (err instanceof StateError) throw err;

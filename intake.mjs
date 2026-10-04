@@ -184,7 +184,13 @@ function loadState() {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new StateError(`${STATE_FILE} does not contain a JSON object — fix or delete it.`);
   }
-  if (!parsed.ingested || typeof parsed.ingested !== 'object') parsed.ingested = {};
+  // Absent is an empty ledger and `{}` is right. Present but not an object is
+  // the same silent reset one level down — it was replaced with `{}` and then
+  // written back by commitState, so every reviewed document looked new again.
+  if (parsed.ingested === undefined || parsed.ingested === null) parsed.ingested = {};
+  else if (typeof parsed.ingested !== 'object' || Array.isArray(parsed.ingested)) {
+    throw new StateError(`${STATE_FILE} has an "ingested" that is not an object — fix or delete it.`);
+  }
   return parsed;
 }
 

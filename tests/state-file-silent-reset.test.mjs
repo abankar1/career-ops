@@ -154,6 +154,55 @@ const cleanup = [];
   }
 }
 
+// ── hired-share: a byReport that is present but not an object ──────────────
+//
+// The same reset one level down, and the one the top-level guard misses. A
+// string or an array here was replaced with `{}` and then written back by
+// saveState — so a file that still HELD the declined hires lost them, which is
+// the exact outcome the rest of this file exists to prevent.
+{
+  for (const [label, body] of [
+    ['a string', '{"byReport":"never"}'],
+    ['an array', '{"byReport":[{"7":"never"}]}'],
+    ['a number', '{"byReport":3}'],
+  ]) {
+    const dir = makeWorkspace('hired-share-inner-');
+    cleanup.push(dir);
+    const statePath = join(dir, 'data', '.hired-share-state.json');
+    writeFileSync(statePath, body);
+
+    const r = runScript('hired-share.mjs', ['--root', dir, '--status'], dir);
+    if (r.code !== 0 && /byReport/.test(r.stderr)) {
+      pass(`${label} under "byReport" is refused, and the message names the key`);
+    } else {
+      fail(`${label} under "byReport": expected a refusal naming the key, got code ${r.code} / `
+        + `${JSON.stringify(r.stderr.slice(0, 160))}`);
+    }
+
+    // The half that matters: the damaged file must still be on disk afterwards.
+    const marked = runScript('hired-share.mjs', ['--root', dir, '--report', '8', '--mark', 'shared'], dir);
+    if (marked.code !== 0 && readFileSync(statePath, 'utf8') === body) {
+      pass(`${label}: --mark refuses too, so the file is not overwritten`);
+    } else {
+      fail(`${label}: --mark overwrote the damaged memory`);
+    }
+  }
+
+  // Guard: an ABSENT byReport is a legitimately empty memory, not damage. A
+  // state file written before the key existed must keep working.
+  {
+    const dir = makeWorkspace('hired-share-nobyreport-');
+    cleanup.push(dir);
+    writeFileSync(join(dir, 'data', '.hired-share-state.json'), '{}');
+    const r = runScript('hired-share.mjs', ['--root', dir, '--status'], dir);
+    if (r.code === 0 && JSON.parse(r.stdout).askable.length === 2) {
+      pass('an absent "byReport" still reads as an empty memory');
+    } else {
+      fail(`an absent "byReport" should be an empty memory, got code ${r.code}: ${r.stdout.slice(0, 160)}`);
+    }
+  }
+}
+
 // ── hired-share: a root-level tracker has no data/ to write into ────────────
 {
   const dir = mkdtempSync(join(tmpdir(), 'hired-share-rootlevel-'));
@@ -224,6 +273,48 @@ const cleanup = [];
   const strays = readdirSync(join(dir, 'data')).filter((f) => f.endsWith('.tmp'));
   if (strays.length === 0) pass('the ledger write leaves no .tmp file behind');
   else fail(`stray temp files after commit: ${strays.join(', ')}`);
+}
+
+// ── intake: an ingested that is present but not an object ──────────────────
+{
+  for (const [label, body] of [
+    ['a string', '{"ingested":"documents/cv.md"}'],
+    ['an array', '{"ingested":["documents/cv.md"]}'],
+  ]) {
+    const dir = makeWorkspace('intake-inner-');
+    cleanup.push(dir);
+    mkdirSync(join(dir, 'documents'), { recursive: true });
+    writeFileSync(join(dir, 'documents', 'master-cv.md'), '# Master CV\n\nTen years of things.\n');
+    const statePath = join(dir, 'data', 'intake-state.json');
+    writeFileSync(statePath, body);
+
+    const r = runScript('intake.mjs', ['--summary'], dir);
+    if (r.code !== 0 && /ingested/.test(r.stderr)) {
+      pass(`${label} under "ingested" is refused, and the message names the key`);
+    } else {
+      fail(`${label} under "ingested": expected a refusal naming the key, got code ${r.code} / `
+        + `${JSON.stringify(r.stderr.slice(0, 160))}`);
+    }
+    if (!/\bnew\b/.test(r.stdout)) pass(`${label}: no document is re-proposed off it`);
+    else fail(`${label}: intake proposed documents anyway`);
+    if (readFileSync(statePath, 'utf8') === body) pass(`${label}: the damaged ledger is left as found`);
+    else fail(`${label}: intake rewrote the damaged ledger`);
+  }
+
+  // Guard: absent is an empty ledger, and the document still reads as new.
+  {
+    const dir = makeWorkspace('intake-noingested-');
+    cleanup.push(dir);
+    mkdirSync(join(dir, 'documents'), { recursive: true });
+    writeFileSync(join(dir, 'documents', 'master-cv.md'), '# Master CV\n\nthings\n');
+    writeFileSync(join(dir, 'data', 'intake-state.json'), '{}');
+    const r = runScript('intake.mjs', ['--summary'], dir);
+    if (r.code === 0 && /master-cv\.md\s+new\b/.test(r.stdout)) {
+      pass('an absent "ingested" still reads as an empty ledger');
+    } else {
+      fail(`an absent "ingested" should be an empty ledger: ${r.stdout.slice(0, 200)}`);
+    }
+  }
 }
 
 // ── intake: JSON that parses but is not a ledger object ────────────────────
