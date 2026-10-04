@@ -57,6 +57,29 @@ test("missing stats degrade to unavailable rather than to zeroes", () => {
   }
 });
 
+test("an absent core and an empty tracker are not the same unavailable", () => {
+  // The failure this prevents: the Conversion block rendering as absolutely
+  // nothing for a brand-new user, which is every user on day one. "I could not
+  // run" and "I ran and you have not applied yet" are different sentences, and
+  // only the first is a reason to stay silent.
+  assert.equal(progressModel(null).reason, "no-core");
+
+  // stats.mjs answering with its own metadata, honestly reporting no tracker —
+  // the shape /api/stats actually returns on a fresh checkout.
+  const fresh = { metadata: { sources: { tracker: false } }, tracker: null, funnel: null };
+  assert.equal(progressModel(fresh).reason, "no-data");
+  assert.equal(progressModel(fresh).available, false);
+
+  // A usable payload carries no reason at all, so the view cannot branch on a
+  // stale one.
+  const ready = progressModel({
+    tracker: { total: 12, activeApps: 3, avgScore: 4.1, topScore: 4.8 },
+    funnel: { everApplied: 10, everResponded: 4, everInterview: 2, everOffer: 1, responseRate: 40 },
+  });
+  assert.equal(ready.available, true);
+  assert.equal(ready.reason, null);
+});
+
 test("below-threshold is a result, not a failure", () => {
   const m = statsModel({ error: "Not enough data: 4/5 applications sent.", current: 4, threshold: 5 });
   assert.equal(m.state, "below-threshold");

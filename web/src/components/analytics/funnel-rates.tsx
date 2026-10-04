@@ -51,10 +51,24 @@ export function FunnelRates() {
     );
   }
 
-  // Silent rather than an error box: the funnel is a supplement to the page
-  // above it, and a red panel for "the stats script is not in this checkout"
-  // would be louder than the fact deserves.
-  if (state === "unavailable" || !model) return null;
+  // Quiet only for the one case that deserves it: stats.mjs not being reachable
+  // at all is an installation fact, and a red panel for it would be louder than
+  // the fact deserves. An empty tracker is NOT that case — it is where every new
+  // user starts, and rendering nothing there means the Conversion block simply
+  // does not exist for them, with no way to learn that it will.
+  if (!model || (state === "unavailable" && model.reason !== "no-data")) return null;
+
+  if (state === "unavailable") {
+    return (
+      <section className="mt-10">
+        <h2 className="font-display text-lg text-landing">Conversion</h2>
+        <p className="mt-3 rounded-2xl border border-dashed border-border bg-surface/30 px-5 py-6 text-sm text-muted">
+          Nothing to convert yet — these rates come from applications you have
+          sent. Apply to a role and the funnel fills in here.
+        </p>
+      </section>
+    );
+  }
 
   const { stages, rates } = model.funnel;
   const top = Math.max(1, ...stages.map((s) => s.value));

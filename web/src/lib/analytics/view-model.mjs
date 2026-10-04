@@ -21,7 +21,9 @@
  * @typedef {{key: string, label: string, value: number|null}} FunnelRate
  *   `value: null` means the rate has no denominator — absent, not zero.
  * @typedef {{tracked: number, active: number, offers: number, avgScore: number|null, topScore: number|null}} ProgressTotals
- * @typedef {{available: boolean, totals: ProgressTotals, funnel: {stages: FunnelStage[], rates: FunnelRate[]}, provisional: boolean}} ProgressModel
+ *   `reason` is null when available; otherwise why not, which decides whether
+ *   the view explains itself or stays quiet.
+ * @typedef {{available: boolean, reason: "no-core"|"no-data"|null, totals: ProgressTotals, funnel: {stages: FunnelStage[], rates: FunnelRate[]}, provisional: boolean}} ProgressModel
  *
  * @typedef {Record<string, string|number|undefined>} BreakdownRow
  * @typedef {{key: "threshold", label: string, value: number|null, note: string|null, sampleSize: number|null, provisional: boolean}} ThresholdSection
@@ -61,7 +63,15 @@ export function progressModel(stats) {
   const tracker = stats?.tracker ?? null;
   const funnel = stats?.funnel ?? null;
   if (!tracker || !funnel) {
-    return { available: false, totals: { tracked: 0, active: 0, offers: 0, avgScore: null, topScore: null }, funnel: { stages: [], rates: [] }, provisional: false };
+    // Two different facts, and collapsing them is how the Conversion block
+    // disappears for every new user with no explanation. "no-core" is stats.mjs
+    // not being reachable at all — a non-event worth staying quiet about.
+    // "no-data" is stats.mjs running fine and reporting it has no tracker yet,
+    // which is the normal starting state and needs to be said out loud.
+    // stats.mjs already distinguishes them in its own metadata, so read that
+    // rather than guess from the absence.
+    const reason = stats ? "no-data" : "no-core";
+    return { available: false, reason, totals: { tracked: 0, active: 0, offers: 0, avgScore: null, topScore: null }, funnel: { stages: [], rates: [] }, provisional: false };
   }
 
   const n = (v) => (Number.isFinite(v) ? v : 0);
@@ -85,6 +95,7 @@ export function progressModel(stats) {
 
   return {
     available: true,
+    reason: null,
     totals: {
       tracked: n(tracker.total),
       active: n(tracker.activeApps),
