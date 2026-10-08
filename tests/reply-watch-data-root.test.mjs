@@ -16,11 +16,12 @@
 // which is what made the pair look correct, so both legs are asserted here: a fix
 // to one alone splits the documented handoff.
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, relative, sep } from 'path';
 import { execFileSync } from 'child_process';
 import { pass, fail, warn, ROOT, NODE } from './helpers.mjs';
+import { isNestedCheckout } from '../lib/mjs-files.mjs';
 
 console.log('\nreply-watch + paste-reply — user-layer paths follow the data root');
 
@@ -91,10 +92,39 @@ function env(root, extra = {}) {
   };
 }
 
+/**
+ * Every path under `dir` whose basename is `name`, found by walking rather than
+ * composed, so an assertion about WHERE a script wrote cannot be satisfied by
+ * the same string the assertion was built from.
+ *
+ * Today it is only ever pointed at a mkdtemp root this suite created, where
+ * there is no nested checkout to meet — but it consults the shared predicate
+ * anyway (#3499, #3762) rather than taking an exemption on that reasoning. An
+ * exemption would have to be re-earned by whoever next points this at a
+ * different directory, and the guard costs one existsSync per directory.
+ */
+function findByName(dir, name) {
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const child = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (isNestedCheckout(child)) continue;
+      found.push(...findByName(child, name));
+    } else if (entry.name === name) {
+      found.push(child);
+    }
+  }
+  return found;
+}
+
 // The checkout's own ledger. Only ever probed with existsSync — never read,
 // never written, never restored. A suite must not touch a developer's data even
 // to prove that the code under test does not.
 const REPO_LEDGER = join(ROOT, 'data', 'reply-candidates.json');
+// Same for the file followup-seed creates. Probed once, up here, because it has
+// to be read BEFORE anything in this suite runs.
+const REPO_FOLLOWUPS = join(ROOT, 'data', 'follow-ups.md');
+const repoFollowupsExisted = existsSync(REPO_FOLLOWUPS);
 function runScript(script, args, environment) {
   try {
     return {
@@ -224,13 +254,63 @@ function runScript(script, args, environment) {
 // ── follow-ups.md: the file followup-seed writes ───────────────────────────
 //
 // followup-seed.mjs writes join(getCareerOpsRoot(), 'data/follow-ups.md'), so
-// before the fix one script wrote a file the other could not see. Asserted at the
-// source, because reply-watch surfaces follow-up context only for a matched row
-// with a due date, and pinning that output would test the cadence logic rather
-// than the path.
+// before the fix one script wrote a file the other could not see.
+//
+// The writer half is MEASURED: followup-seed is spawned against a root with no
+// follow-ups.md and the file it creates is located on disk. An earlier version
+// of this leg only grepped both files for `getCareerOpsRoot()`, which is
+// lint-grade — it proves both mention a function, not that they agree on a
+// path, and a rename keeps it green (@Scott-Emberson and CodeRabbit both
+// flagged it). Seeding is also the case that matters: it is the one path that
+// CREATES the file, so getting it wrong puts the whole cadence feature in a
+// place nothing else reads.
+//
+// reply-watch's half stays a source assertion, and deliberately: it surfaces
+// follow-up context only for a matched row with a due date, so driving its
+// output would pin the cadence logic rather than the path. But it pins the
+// exact join, not a function name, so the pair claim now rests on one measured
+// path and one precise one.
 {
+  const dir = makeDataRoot({ withFollowups: false });
+  const seeded = runScript('followup-seed.mjs', ['1', '--json'], env(dir, { CAREER_OPS_FOLLOWUPS: '' }));
+
+  // Positive control first: an assertion that the file is absent from the wrong
+  // place is worthless if the script never ran. `seeded:true` is the script's
+  // own word that it did the write, not merely that it exited 0.
+  let report = null;
+  try { report = JSON.parse(seeded.stdout); } catch { /* reported below */ }
+  if (seeded.code === 0 && report?.seeded === true) {
+    pass('followup-seed seeds a pin with CAREER_OPS_ROOT alone');
+  } else {
+    fail(`followup-seed did not seed: exit ${seeded.code}, `
+      + `stdout ${JSON.stringify(seeded.stdout.slice(0, 200))}, `
+      + `stderr ${JSON.stringify(seeded.stderr.slice(0, 200))}`);
+  }
+
+  const seededFile = join(dir, 'data', 'follow-ups.md');
+  if (existsSync(seededFile) && /- next #1 /.test(readFileSync(seededFile, 'utf8'))) {
+    pass('followup-seed creates follow-ups.md under the data root, pin included');
+  } else {
+    fail(`followup-seed wrote no pinned follow-ups.md at ${seededFile} — it went somewhere else`);
+  }
+
+  // Same discipline as the ledger leg above: the checkout's own follow-ups.md is
+  // the developer's data in the default layout, so it is only ever probed. Where
+  // it does not exist, absence after the run is the strong assertion; where it
+  // does, the measured path above still carries the invariant.
+  if (!repoFollowupsExisted) {
+    if (!existsSync(REPO_FOLLOWUPS)) {
+      pass('followup-seed wrote nothing into the repository checkout');
+    } else {
+      fail('followup-seed created data/follow-ups.md in the repo — '
+        + 'user content in the system layer');
+    }
+  } else {
+    warn('the checkout has its own data/follow-ups.md (default layout) — skipping the '
+      + 'untouched-checkout check rather than reading or rewriting a developer\'s follow-ups');
+  }
+
   const src = readFileSync(join(ROOT, 'reply-watch.mjs'), 'utf8');
-  const seed = readFileSync(join(ROOT, 'followup-seed.mjs'), 'utf8');
 
   if (/FOLLOWUPS_FILE = path\.join\(DATA_ROOT, 'data', 'follow-ups\.md'\)/.test(src)) {
     pass('reply-watch resolves follow-ups.md against the data root');
@@ -238,11 +318,20 @@ function runScript(script, args, environment) {
     fail('reply-watch no longer resolves follow-ups.md against the data root');
   }
 
-  // The pair, not just the one file: this is the assertion that catches the two
-  // drifting apart again, in either direction.
-  const bothUseDataRoot = /getCareerOpsRoot\(\)/.test(src) && /getCareerOpsRoot\(\)/.test(seed);
-  if (bothUseDataRoot) pass('reply-watch and followup-seed resolve follow-ups.md through the same root');
-  else fail('reply-watch and followup-seed disagree about where follow-ups.md lives');
+  // The pair, anchored on where followup-seed actually wrote rather than on a
+  // shared function name. The location is DISCOVERED by walking the root, not
+  // compared against a path this file built: `seededFile` above is a string this
+  // suite composed, so checking the seed landed there proves the file exists but
+  // comparing that same string to 'data/follow-ups.md' would only restate how it
+  // was composed. The root started with no follow-ups.md at all
+  // (withFollowups: false), so anything the walk finds is the seed's own work.
+  const written = findByName(dir, 'follow-ups.md').map((f) => relative(dir, f).split(sep).join('/'));
+  if (written.length === 1 && written[0] === 'data/follow-ups.md') {
+    pass('reply-watch and followup-seed agree on follow-ups.md, writer measured');
+  } else {
+    fail(`followup-seed wrote ${JSON.stringify(written)} but reply-watch reads `
+      + 'data/follow-ups.md — the two see different files');
+  }
 
   if (!/__dirname/.test(src)) pass('reply-watch no longer references its own directory at all');
   else fail('reply-watch still resolves a path against __dirname');
