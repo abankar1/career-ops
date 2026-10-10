@@ -23,10 +23,15 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const WEB = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const LOADER = join(WEB, "tests", "helpers", "web-ts-alias-loader.mjs");
+// A file:// URL, not a bare path. `--import` takes a module SPECIFIER, and on
+// Windows an absolute path begins with a drive letter — Node reads `D:` as a
+// URL scheme and throws ERR_UNSUPPORTED_ESM_URL_SCHEME. POSIX happens to
+// tolerate the path form, so the bug is invisible until CI runs on Windows.
+// web-ts-alias-loader.test.mjs already does this; I did not copy it.
+const LOADER = pathToFileURL(join(WEB, "tests", "helpers", "web-ts-alias-loader.mjs")).href;
 
 const DRIVER = `
 const { GET } = await import("@/app/api/whats-new/route.ts");
