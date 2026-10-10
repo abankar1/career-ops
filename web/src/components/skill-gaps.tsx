@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GraduationCap, TriangleAlert } from "lucide-react";
 import { skillGapModel, barPct } from "@/lib/skill-gaps.mjs";
@@ -24,20 +24,24 @@ const TIER_CLASS: Record<string, string> = {
 
 export function SkillGaps() {
   const [model, setModel] = useState<SkillGapModel | null>(null);
+  // One counter for every in-flight load, not a per-call `alive` flag. Each
+  // call owning its own flag meant two saves in quick succession raced: the
+  // effect kept only the mount call's cleanup, so an older response arriving
+  // last restored the gap map from before the edit — stale in the one place the
+  // user just acted. Same generation guard today-dashboard.tsx uses.
+  const generation = useRef(0);
 
   const load = useCallback(() => {
-    let alive = true;
+    const mine = ++generation.current;
+    const isLatest = () => mine === generation.current;
     fetch("/api/upskill")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d) => alive && setModel(skillGapModel(d)))
-      .catch(() => alive && setModel(skillGapModel(null)));
-    return () => {
-      alive = false;
-    };
+      .then((d) => { if (isLatest()) setModel(skillGapModel(d)); })
+      .catch(() => { if (isLatest()) setModel(skillGapModel(null)); });
   }, []);
 
   useEffect(() => {
-    const cancel = load();
+    load();
     // The gap map subtracts the skills already in cv.md, so editing the CV
     // directly above this panel changes its answer. Loading once left the list
     // describing the document as it was before the save — stale in the one place
@@ -45,8 +49,10 @@ export function SkillGaps() {
     const onSaved = () => load();
     window.addEventListener("co-cv-saved", onSaved);
     return () => {
-      cancel();
       window.removeEventListener("co-cv-saved", onSaved);
+      // Unmount invalidates whatever is still in flight, so a late response
+      // cannot setState on a gone component.
+      generation.current += 1;
     };
   }, [load]);
 
