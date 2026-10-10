@@ -87,11 +87,22 @@ func resolveTrackerPath(careerOpsPath string) string {
 }
 
 // ParseApplications reads applications.md and returns parsed applications.
-func ParseApplications(careerOpsPath string) []model.CareerApplication {
+//
+// The error is returned rather than folded into a nil slice because absent and
+// unreadable are different facts and the callers need to tell them apart. A
+// tracker that is not there yet is a first run; one that cannot be opened is
+// the user's whole pipeline being inaccessible, and reporting that as "no
+// applications" both loses the pipeline and makes ComputeProgressMetrics
+// report the search as failing (every rate falls to 0% and renders red).
+//
+// Callers should branch on errors.Is(err, fs.ErrNotExist). Same rule the rest
+// of the project follows for user-layer reads: ENOENT is the only failure that
+// legitimately means empty.
+func ParseApplications(careerOpsPath string) ([]model.CareerApplication, error) {
 	filePath := resolveTrackerPath(careerOpsPath)
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("read tracker %s: %w", filePath, err)
 	}
 
 	lines := strings.Split(string(content), "\n")
@@ -238,7 +249,7 @@ func ParseApplications(careerOpsPath string) []model.CareerApplication {
 	// Strategy 5: company name fallback from batch-input.tsv
 	enrichAppURLsByCompany(careerOpsPath, apps)
 
-	return apps
+	return apps, nil
 }
 
 // loadBatchInputURLs reads batch-input.tsv and returns a map of batch ID -> job URL.
