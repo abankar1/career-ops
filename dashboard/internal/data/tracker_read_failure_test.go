@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -118,4 +119,52 @@ func TestBrokenTrackerDoesNotReportTheSearchAsFailing(t *testing.T) {
 	t.Logf("metrics computed from a failed read are indistinguishable from a real 0%%: "+
 		"response=%.1f interview=%.1f offer=%.1f — which is why the error is returned",
 		metrics.ResponseRate, metrics.InterviewRate, metrics.OfferRate)
+}
+
+func TestAnInaccessibleTrackerIsNotReportedAsMissing(t *testing.T) {
+	// One step earlier than the tests above. resolveTrackerPath fell back to the
+	// legacy ./applications.md on ANY stat failure, not just absence — so when
+	// data/applications.md existed but could not be examined, the reader was
+	// sent to a legacy path that does not exist, got ENOENT from there, and
+	// startup printed "could not find applications.md" about a permission
+	// problem on a file sitting right where it belongs.
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not produce EACCES on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("running as root; permission bits do not deny access")
+	}
+
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tracker := filepath.Join(dataDir, "applications.md")
+	if err := os.WriteFile(tracker, []byte("# Applications Tracker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Deny traversal of data/, so stat of the tracker inside it fails with
+	// something that is NOT ErrNotExist while the file is demonstrably there.
+	if err := os.Chmod(dataDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dataDir, 0o755) })
+
+	if got := resolveTrackerPath(root); got != filepath.Clean(tracker) {
+		t.Errorf("resolveTrackerPath = %s; want the canonical tracker %s, not the legacy fallback", got, tracker)
+	}
+
+	_, err := ParseApplications(root)
+	if err == nil {
+		t.Fatal("expected an error for a tracker that cannot be read")
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a tracker that EXISTS but cannot be accessed must not report as missing: %v", err)
+	}
+	// The message has to name the real file, or the user goes looking in the
+	// wrong place — which is what the legacy fallback caused.
+	if !strings.Contains(err.Error(), filepath.Join("data", "applications.md")) {
+		t.Errorf("the error should name data/applications.md, got %q", err)
+	}
 }

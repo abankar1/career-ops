@@ -1,7 +1,9 @@
 package data
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -80,7 +82,18 @@ func resolveTrackerPath(careerOpsPath string) string {
 		return filepath.Clean(filepath.Join(getRepoRoot(), envTracker))
 	}
 	dataPath := filepath.Clean(filepath.Join(careerOpsPath, "data", "applications.md"))
+	// Fall back ONLY when data/applications.md is genuinely absent. Any other
+	// stat failure means the canonical tracker IS there and could not be
+	// examined, and falling back then sends the reader to a legacy path that
+	// usually does not exist — so a permission error on the real tracker
+	// surfaced as "could not find applications.md", the same mix-up this change
+	// removes one step later in ParseApplications.
 	if _, err := os.Stat(dataPath); err == nil {
+		return dataPath
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		// Returned as the resolved path so the caller's own read reports the
+		// real error against the real file, rather than this function inventing
+		// a second error channel for a path it only computes.
 		return dataPath
 	}
 	return filepath.Clean(filepath.Join(careerOpsPath, "applications.md"))
