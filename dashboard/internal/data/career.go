@@ -1013,7 +1013,10 @@ func ComputeProgressMetrics(apps []model.CareerApplication, history ...map[int]i
 		{Label: "Offer", Count: offer, Pct: safePct(offer, applied)},
 	}
 
-	// Rates (relative to applied)
+	// Rates (relative to applied). The denominator travels with them so the
+	// renderer can tell an absent rate from a measured 0% — see
+	// model.ProgressMetrics.RatesDenominator.
+	pm.RatesDenominator = applied
 	if applied > 0 {
 		pm.ResponseRate = float64(responded) / float64(applied) * 100
 		pm.InterviewRate = float64(interview) / float64(applied) * 100
