@@ -97,3 +97,10 @@ test("a real payload round-trips into the model", () => {
   assert.equal(m.coveragePct, 56);
   assert.equal(coverageBand(m.coveragePct), "mid");
 });
+
+test("a thin term that is not also present is dropped, so the tiers never exceed total", () => {
+  const tiers = splitTiers({ present: ["Go", "AWS"], thin: ["Go", "Rust"], missing: ["Kafka"] });
+  assert.deepEqual(tiers.find((t) => t.key === "thin").terms, ["Go"]);
+  assert.deepEqual(tiers.find((t) => t.key === "covered").terms, ["AWS"]);
+  assert.equal(tiers.reduce((n, t) => n + t.terms.length, 0), 3);
+});

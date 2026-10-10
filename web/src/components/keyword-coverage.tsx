@@ -90,9 +90,9 @@ export function KeywordCoverage({ reportId }: { reportId: string }) {
                 {tier.label} <span className="normal-case tracking-normal">· {tier.hint}</span>
               </p>
               <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                {tier.terms.map((term) => (
+                {tier.terms.map((term, i) => (
                   <li
-                    key={term}
+                    key={`${i}:${term}`}
                     className={
                       tier.key === "missing"
                         ? "rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted"

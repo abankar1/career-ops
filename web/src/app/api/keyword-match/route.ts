@@ -25,12 +25,12 @@ export async function GET(req: Request) {
   const script = rootScript("keyword-match");
   if (!fs.existsSync(script)) return Response.json({ available: false, reason: "no-script", result: null });
 
-  const { stdout, failed } = await new Promise<{ stdout: string; failed: boolean }>((resolve) => {
+  const { stdout, stderr, failed } = await new Promise<{ stdout: string; stderr: string; failed: boolean }>((resolve) => {
     execFile(
       "node",
       [script, file, "--json"],
       { cwd: careerOpsRoot(), timeout: 20_000, maxBuffer: 4 << 20 },
-      (err, out) => resolve({ stdout: out || "", failed: Boolean(err) }),
+      (err, out, errOut) => resolve({ stdout: out || "", stderr: errOut || "", failed: Boolean(err) }),
     );
   });
 
@@ -41,9 +41,9 @@ export async function GET(req: Request) {
   } catch {
     // The common miss is a report with no `## Keywords extracted` block — older
     // reports and any written before that block existed. The script says so on
-    // stdout and exits nonzero, and it is a fact about the REPORT rather than a
+    // stderr and exits nonzero, and it is a fact about the REPORT rather than a
     // failure, so it gets its own reason instead of a generic error.
-    const noKeywords = /keywords extracted/i.test(stdout);
+    const noKeywords = /keywords extracted/i.test(stderr);
     return Response.json({
       available: false,
       reason: noKeywords ? "no-keywords" : failed ? "failed" : "unparseable",

@@ -28,12 +28,14 @@
  */
 export function splitTiers(result) {
   const present = arr(result?.present);
-  const thin = arr(result?.thin);
   const missing = arr(result?.missing);
 
   // Case-insensitive, because the two lists come from the same extraction and
   // should agree exactly — but a future change to either must not silently
-  // start double-counting.
+  // start double-counting. The partition holds in both directions: a thin term
+  // that is not also present is dropped, so the tiers never add up past `total`.
+  const presentSet = new Set(present.map((t) => t.toLowerCase()));
+  const thin = arr(result?.thin).filter((t) => presentSet.has(t.toLowerCase()));
   const thinSet = new Set(thin.map((t) => t.toLowerCase()));
   const covered = present.filter((t) => !thinSet.has(t.toLowerCase()));
 
