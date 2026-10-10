@@ -176,13 +176,17 @@ test('-h is accepted wherever --help is, and suppresses the same work', () => {
 const KNOWN_WITHOUT_HELP = new Set([
   'batch-evaluate-gemini.mjs', 'cv-templates.mjs', 'fetch-jd.mjs', 'followup-seed.mjs',
   'generate-cover-letter.mjs', 'generate-pdf.mjs', 'intake.mjs',
-  'match-star.mjs', 'normalize-statuses.mjs', 'openrouter-runner.mjs', 'plugins.mjs',
-  'scan-hn.mjs', 'scan-interamt.mjs', 'seed-fixture.mjs', 'tracker.mjs',
+  'match-star.mjs', 'openrouter-runner.mjs', 'plugins.mjs',
+  'seed-fixture.mjs', 'tracker.mjs',
   'validate-plugin-registry.mjs', 'validate-untrusted-content-coverage.mjs',
   // generate-latex.mjs and verify-portals.mjs were here and have since been
   // fixed upstream; the ratchet's other end caught that on the rebase and
   // required their removal, which is the half of it that keeps the list from
   // quietly rotting into a description of nothing.
+  //
+  // normalize-statuses.mjs, scan-hn.mjs and scan-interamt.mjs left the same way
+  // on this rebase: all three gained KNOWN_FLAGS containing '--help' between
+  // 2026-09-30 and 2026-10-03, from other contributors.
 
   // Surfaced by widening the scan below from one directory to the whole tree.
   // These are NOT new CLIs joining a list that is supposed to shrink — they
@@ -201,6 +205,20 @@ const KNOWN_WITHOUT_HELP = new Set([
   'plugins/h1b-sponsor/install-h1b-index.mjs',
   'plugins/h1b-sponsor/token.mjs',
   'scripts/export-ats-text.mjs',
+
+  // Not user-facing CLIs, so `--help` is not a question anyone asks them. They
+  // carry the isMainModule guard because something else invokes them — a
+  // workflow step and the web app's own job runner — and neither is reachable
+  // from a shell prompt the way every other entry here is.
+  //
+  // These two are the only additions; the list is net SHORTER than before this
+  // change, which is the direction the ratchet allows. The three root-level
+  // CLIs the same scan surfaced (cv-title-check.mjs, scan-dayforce.mjs,
+  // sync-pdf-flags.mjs) are user-facing and were FIXED in this PR rather than
+  // listed, because listing them is what turns this into a description of
+  // nothing.
+  '.github/scripts/sponsors.mjs',
+  'web/scripts/scheduled-jobs-runner.mjs',
 ]);
 
 /**
