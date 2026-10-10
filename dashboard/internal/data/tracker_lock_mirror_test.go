@@ -60,6 +60,19 @@ func nodeLockDirFor(t *testing.T, root, trackerPath, lockOverride string) string
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not on PATH; the Go/Node mirror cannot be compared")
 	}
+	// tracker-utils.mjs imports js-yaml, so on a checkout that has never had
+	// `npm install` the import fails before the comparison even starts. That is
+	// a missing dev dependency, not a divergence, and reporting it as a failure
+	// gives a contributor running `go test` a red build about something this
+	// test is not measuring.
+	//
+	// Probed separately so that ONLY this cause is excused: any other node error
+	// below stays fatal, because that is where a real divergence would surface.
+	probe := exec.Command("node", "-e", "import('js-yaml').then(()=>{},()=>process.exit(3))")
+	probe.Dir = root
+	if err := probe.Run(); err != nil {
+		t.Skip("js-yaml is not installed (run npm install); tracker-utils.mjs cannot be imported")
+	}
 
 	// canonicalizeTrackerPath FIRST, because that is what the real Node callers
 	// do and the asymmetry matters: Go canonicalizes inside trackerLockDirFor,
