@@ -34,7 +34,12 @@ const DISPLAY_PERIOD_MAX = 60;
  */
 export function parseExperienceStart(period) {
   if (typeof period !== 'string') return null;
-  const text = period.replace(/&(?:[a-z]+|#\d+|#x[0-9a-f]+);/gi, ' ').trim();
+  // A dash stays a dash: blanked with the other entities, "Jun &ndash; Aug 2022"
+  // stops being a range.
+  const text = period
+    .replace(/&(?:[nm]dash|#821[12]|#x201[34]);/gi, '-')
+    .replace(/&(?:[a-z]+|#\d+|#x[0-9a-f]+);/gi, ' ')
+    .trim();
   const year = text.match(/\b(19|20)\d{2}\b/);
   if (!year) return null;
   const before = text.slice(0, year.index);
