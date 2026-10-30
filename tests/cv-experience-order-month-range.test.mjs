@@ -12,6 +12,14 @@ test('a month range inside one year starts in its first month', () => {
   }
 });
 
+test('an encoded dash still separates the range, as rendered HTML writes it', () => {
+  for (const dash of ['&ndash;', '&mdash;', '&#8211;', '&#8212;', '&#x2013;', '&#x2014;', '&NDASH;']) {
+    const period = `Jun ${dash} Aug 2022`;
+    assert.deepEqual(parseExperienceStart(period), { year: 2022, month: 6 }, period);
+  }
+  assert.deepEqual(parseExperienceStart('Aug&nbsp;2022 &ndash; Present'), { year: 2022, month: 8 });
+});
+
 test('a single month still reads as before', () => {
   assert.deepEqual(parseExperienceStart('Aug 2022 - Present'), { year: 2022, month: 8 });
   assert.deepEqual(parseExperienceStart('Since Mar 2021'), { year: 2021, month: 3 });
