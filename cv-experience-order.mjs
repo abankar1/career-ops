@@ -38,7 +38,10 @@ export function parseExperienceStart(period) {
   const year = text.match(/\b(19|20)\d{2}\b/);
   if (!year) return null;
   const before = text.slice(0, year.index);
-  const month = before.match(/\b([a-z]{3})[a-z]*\.?\s*$/i);
+  // "Jun - Aug 2022" names both months ahead of the one year, and the role
+  // started in the first of them.
+  const month = before.match(/\b([a-z]{3})[a-z]*\.?\s*(?:[-\u2013\u2014]|\bto\b)\s*[a-z]+\.?\s*$/i)
+    ?? before.match(/\b([a-z]{3})[a-z]*\.?\s*$/i);
   return {
     year: Number(year[0]),
     month: month ? (MONTHS.get(month[1].toLowerCase()) ?? null) : null,
