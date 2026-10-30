@@ -100,10 +100,17 @@ function findSection(lines, section) {
  */
 function listItems(lines, at, end, indent) {
   let last = at;
+  let dash = -1;
   for (let i = at + 1; i < end; i++) {
     if (isBlankOrComment(lines[i])) continue;
-    if (/^\s*- /.test(lines[i]) && indentOf(lines[i]).length >= indent.length) last = i;
-    else break;
+    const width = indentOf(lines[i]).length;
+    if (/^\s*- /.test(lines[i]) && width >= indent.length) {
+      last = i;
+      if (dash === -1) dash = width;
+    } else if (dash !== -1 && width > dash) {
+      // The rest of an item that is a mapping: `- name: x` then `  level: y`.
+      last = i;
+    } else break;
   }
   const kept = lines.slice(at + 1, last + 1).flatMap((line) => {
     if (line.trim().startsWith("#")) return [line];
