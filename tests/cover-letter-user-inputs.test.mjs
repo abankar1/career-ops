@@ -171,7 +171,7 @@ test('the fact-check CLI names only the files it read', () => {
       env: { ...process.env, CAREER_OPS_ROOT: dir, CAREER_OPS_DATA_DIR: '' },
     });
     const text = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    assert.equal(result.status, 1, text);
+    assert.equal(result.status, 1, describeSpawn(result, text));
     assert.match(text, /6 months/);
     assert.match(text, /cv\.md and article-digest\.md/);
     assert.doesNotMatch(text, /answers|this letter/);
@@ -218,14 +218,14 @@ test('generate-cover-letter counts user_inputs as a source for this letter', () 
   assert.ok(exitedNonZero(blocked), describeSpawn(blocked, 'expected a non-zero exit'));
 
   const passed = runCover(coverPayload(PLAN, { user_inputs: [PLAN] }));
-  assert.equal(passed.status, 0, passed.text);
+  assert.equal(passed.status, 0, describeSpawn(passed));
   assert.doesNotMatch(passed.text, /Fact check failed/, passed.text);
   assert.doesNotMatch(passed.text, /6 months/, passed.text);
 });
 
 test('generate-cover-letter counts an answers object as a source', () => {
   const passed = runCover(coverPayload(PLAN, { answers: { approach: PLAN, tone: 'direct' } }));
-  assert.equal(passed.status, 0, passed.text);
+  assert.equal(passed.status, 0, describeSpawn(passed));
   assert.doesNotMatch(passed.text, /Fact check failed/, passed.text);
   assert.doesNotMatch(passed.text, /6 months/, passed.text);
 });

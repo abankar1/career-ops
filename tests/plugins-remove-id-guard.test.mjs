@@ -97,7 +97,7 @@ function run(...args) {
 
 test('the disposable checkout loads plugins.mjs end to end', () => {
   const r = run('remove'); // no id: usage path, but the whole module graph loads first
-  assert.equal(r.status, 1, `usage guard exited ${r.status}, want 1\n${r.all}`);
+  assert.equal(r.status, 1, describeSpawn(r, `usage guard exited ${r.status}, want 1\n`));
   assert.match(r.all, /Usage:/, `expected the usage line, got:\n${r.all}`);
 });
 

@@ -124,15 +124,15 @@ ok('CLI: add take-home, submit appends a row (append-only), open lists then drop
     writeFileSync(log, '2026-07-01\tFakeCo\t-\teSkill\tExcel\t70\t90\t\n');
     let r = cli('add', '--kind', 'take-home', '--company', 'ExampleCorp', '--platform', 'portal', '--subject', 'Demo',
       '--deadline', '2099-01-01T17:00:00-08:00', '--deliverable', 'video');
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 0, describeSpawn(r));
     const before = readFileSync(log, 'utf-8');
     r = cli('open', '--tz', 'America/Toronto', '--json');
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 0, describeSpawn(r));
     const out = JSON.parse(r.stdout);
     assert.equal(out.open.length, 1);
     assert.equal(out.open[0].deadlineLocal, '2099-01-01 20:00 EST');
     r = cli('submit', '--company', 'ExampleCorp', '--subject', 'Demo', '--submitted-at', '2098-12-30', '--proof', 'on-screen thanks');
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 0, describeSpawn(r));
     assert.ok(readFileSync(log, 'utf-8').startsWith(before), 'earlier rows untouched');
     assert.equal(JSON.parse(cli('open', '--tz', 'UTC', '--json').stdout).open.length, 0);
     assert.notEqual(cli('submit', '--company', 'Ghost', '--subject', 'x', '--submitted-at', '2098-12-30').status, 0);
