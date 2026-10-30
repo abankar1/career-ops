@@ -247,16 +247,10 @@ function stripNonContentRegions(html) {
  * @returns {string}
  */
 function extractVisibleText(html) {
-  return collapse(
-    stripNonContentRegions(html)
-      .replace(/<\/?[a-zA-Z][^>]*>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      // &amp; is decoded LAST: doing it earlier could turn "&amp;lt;" into "&lt;"
-      // and then into "<", double-unescaping text that was never an entity.
-      .replace(/&amp;/gi, '&')
-  );
+  // decodeEntities is one pass, so "&amp;lt;" stays the text "&lt;". All of them
+  // matter here: build-cv-html writes every apostrophe as &#39;, so a keyword
+  // like "Master's degree" read as missing from a CV that says it.
+  return collapse(decodeEntities(stripNonContentRegions(html).replace(/<\/?[a-zA-Z][^>]*>/g, ' ')));
 }
 
 /**
