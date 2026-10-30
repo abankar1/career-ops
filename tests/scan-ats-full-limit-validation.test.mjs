@@ -19,12 +19,18 @@ const ok = (name, fn) => { try { fn(); pass(name); } catch (e) { fail(`${name} â
 
 console.log('\nscan-ats-full â€” --limit must be a positive whole number');
 
+// All digits, so both pass the pattern alone: the first converts to Infinity,
+// the unbounded sweep again; the second stays finite but is the first integer
+// past the safe range, which an isFinite check would wave through.
+const INFINITE = '9'.repeat(400);
+const UNSAFE = '9007199254740992';
+
 // An empty data root: if validation ever let a value through, the run would
 // stop at the missing portals.yml rather than reach the network.
 const root = mkdtempSync(join(tmpdir(), 'ats-full-limit-'));
 try {
-  for (const args of [['--limit', 'abc'], ['--limit', '0'], ['--limit', '-5'], ['--limit', '1O'], ['--limit', '2.5'], ['--limit=x'], ['--limit']]) {
-    ok(`${args.join(' ')} is refused`, () => {
+  for (const args of [['--limit', 'abc'], ['--limit', '0'], ['--limit', '-5'], ['--limit', '1O'], ['--limit', '2.5'], ['--limit=x'], ['--limit'], ['--limit', INFINITE], ['--limit', UNSAFE]]) {
+    ok(`${args.join(' ').slice(0, 40)} is refused`, () => {
       const r = spawnSync(NODE, [join(ROOT, 'scan-ats-full.mjs'), ...args], {
         cwd: root, encoding: 'utf-8', timeout: 30000,
         env: { ...process.env, CAREER_OPS_ROOT: root, CAREER_OPS_DATA_DIR: '' },
