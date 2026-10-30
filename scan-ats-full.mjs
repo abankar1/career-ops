@@ -497,11 +497,13 @@ export function parseArgs(argv) {
   // never a silent default. `Number(...) || Infinity` turned `--limit abc`,
   // `--limit 0`, a typo like `--limit 1O`, and a bare `--limit` into an
   // UNBOUNDED sweep, the slowest and most network-hungry run this script has,
-  // while the user believed they had capped it.
+  // while the user believed they had capped it. The pattern alone is not
+  // enough: a long enough run of digits passes it and converts to Infinity,
+  // the same sweep, so the value must also be a safe integer.
   let limit = Infinity;
   if (hasFlag(args, '--limit')) {
     const raw = String(flagValue(args, '--limit') ?? '').trim();
-    if (!/^[1-9]\d*$/.test(raw)) {
+    if (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(Number(raw))) {
       console.error(`Error: --limit expects a positive whole number of companies, got ${raw ? `"${raw}"` : 'no value'}`);
       process.exit(1);
     }
