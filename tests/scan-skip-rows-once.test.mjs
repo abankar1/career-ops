@@ -43,7 +43,21 @@ function record(urls, status) {
   const offers = urls.map((u) => ({ url: u, source: 'interamt', title: 'Referent', company: 'Stadt', location: 'Berlin' }));
   writeFileSync(jobFile, JSON.stringify({ offers, status }));
   const out = execFileSync(NODE, ['--input-type=module', '-e', writerSource, pathToFileURL(join(ROOT, 'scan.mjs')).href, jobFile], {
-    env: { ...process.env, CAREER_OPS_ROOT: root, CAREER_OPS_DATA_DIR: '' },
+    // An exported path override outranks CAREER_OPS_ROOT, and the history one
+    // would take these fixture rows into the developer's real file. So it is
+    // pinned to the fixture's, and every other override scan.mjs honours is
+    // blanked, which reads as unset.
+    env: {
+      ...process.env,
+      CAREER_OPS_ROOT: root,
+      CAREER_OPS_DATA_DIR: '',
+      CAREER_OPS_SCAN_HISTORY: historyPath,
+      CAREER_OPS_PIPELINE: '',
+      CAREER_OPS_PORTALS: '',
+      CAREER_OPS_PROFILE: '',
+      CAREER_OPS_TRACKER: '',
+      CAREER_OPS_AGGREGATOR_DOMAINS: '',
+    },
     encoding: 'utf8',
   });
   return Number(out.trim());
