@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,16 +37,38 @@ test('a mistyped --dry-run is refused and writes nothing', () => {
   });
 });
 
-test('--input=path writes to that file, the same as --input path', () => {
+// Dry runs, and the URL is already queued in the named file: a flag that stopped
+// being read shows up as a new entry, without writing to the checkout's default.
+test('--input=path and --state=path read those files, the same as the spaced form', () => {
   withPipeline(({ root, pipeline, run }) => {
-    const spaced = join(root, 'spaced.tsv');
-    const equals = join(root, 'equals.tsv');
-    const state = join(root, 'state.tsv');
-    assert.equal(run('--pipeline', pipeline, '--input', spaced, '--state', state).status, 0);
-    const result = run(`--pipeline=${pipeline}`, `--input=${equals}`, `--state=${state}`);
+    const queued = join(root, 'queued.tsv');
+    const empty = join(root, 'empty.tsv');
+    writeFileSync(queued, 'id\turl\n1\thttps://jobs.example.com/acme/1\n');
+    writeFileSync(empty, '');
+    for (const args of [
+      ['--input', queued, '--state', empty],
+      [`--input=${queued}`, `--state=${empty}`],
+      ['--input', empty, '--state', queued],
+      [`--input=${empty}`, `--state=${queued}`],
+    ]) {
+      const result = run('--dry-run', `--pipeline=${pipeline}`, ...args);
+      assert.equal(result.status, 0, describeSpawn(result));
+      assert.match(result.stdout, /already in batch-input\.tsv or batch-state\.tsv/, args.join(' '));
+    }
+  });
+});
+
+test('an equals value may start with dashes, and a spaced flag still needs its value', () => {
+  withPipeline(({ root, pipeline, run }) => {
+    const empty = join(root, 'empty.tsv');
+    writeFileSync(empty, '');
+    writeFileSync(join(root, '--queued.tsv'), 'id\turl\n1\thttps://jobs.example.com/acme/1\n');
+    const result = run('--dry-run', `--pipeline=${pipeline}`, '--input=--queued.tsv', `--state=${empty}`);
     assert.equal(result.status, 0, describeSpawn(result));
-    assert.ok(existsSync(equals), `--input=path was ignored:\n${result.stdout}`);
-    assert.equal(readFileSync(equals, 'utf8'), readFileSync(spaced, 'utf8'));
+    assert.match(result.stdout, /already in batch-input\.tsv or batch-state\.tsv/);
+
+    const missing = run('--dry-run', `--pipeline=${pipeline}`, '--input', '--dry-run');
+    assert.ok(exitedNonZero(missing), describeSpawn(missing, 'expected a non-zero exit'));
   });
 });
 
