@@ -309,7 +309,7 @@ if (isMainModule(import.meta.url)) {
   function argValue(flag) {
     if (!hasFlag(args, flag)) return null;
     const value = flagValue(args, flag);
-    if (value === undefined || value === '' || value.startsWith('--')) {
+    if (value === undefined || value === '') {
       console.error(`Missing value for ${flag}`);
       process.exit(1);
     }
