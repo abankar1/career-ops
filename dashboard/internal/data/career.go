@@ -1024,8 +1024,6 @@ func detectTrackerColumns(lines []string) map[string]int {
 	return nil
 }
 
-// resolveTrackerColumns returns the header-detected column map, falling back to
-// the legacy fixed layout when no header row is found.
 // trackerRowWidth is how many cells a complete row has under cols: one per
 // column up to the highest one mapped. The Go twin of parseTrackerRow's
 // dynamic width guard; splitTrackerRow drops the outer pipes, so no edge cells
@@ -1040,6 +1038,8 @@ func trackerRowWidth(cols map[string]int) int {
 	return width
 }
 
+// resolveTrackerColumns returns the header-detected column map, falling back to
+// the legacy fixed layout when no header row is found.
 func resolveTrackerColumns(lines []string) map[string]int {
 	if m := detectTrackerColumns(lines); m != nil {
 		return m
