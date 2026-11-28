@@ -372,6 +372,15 @@ async function main() {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
   const bad = validateFlags(args, KNOWN_FLAGS, USAGE, { valueFlags: VALUE_FLAGS, requireOperand: true });
   if (bad) { process.exitCode = 1; return; }
+  // `--root ""` (a shell variable that expanded to nothing) passes
+  // requireOperand, which refuses only `--root=` and a swallowed flag. Read as
+  // absent, it read the configured data root's tracker, and `--mark` wrote
+  // that root's share state, instead of the workspace asked for.
+  if (flagValue(args, '--root') === '') {
+    console.error('Error: --root requires a value');
+    process.exitCode = 1;
+    return;
+  }
 
   // Default to the configured data root (CAREER_OPS_ROOT / CAREER_OPS_DATA_DIR /
   // .career-ops-data marker), not process.cwd(): with the user layer outside the
