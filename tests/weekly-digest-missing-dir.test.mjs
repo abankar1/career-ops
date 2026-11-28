@@ -43,6 +43,14 @@ test('an empty --dir exits 1 instead of digesting the default folder', () => {
   assert.doesNotMatch(r.stdout, /Weekly Interview Digest/);
 });
 
+test('an empty --dir is refused before --self-test runs, as --dir= is', () => {
+  for (const args of [['--self-test', '--dir', ''], ['--self-test', '--dir=']]) {
+    const r = run(...args);
+    assert.equal(r.status, 1, `${args.join(' ')}\n${describeSpawn(r)}`);
+    assert.match(r.stderr, /--dir requires a value/);
+  }
+});
+
 test('control: an existing empty --dir, and the absent default, still print the digest', () => {
   for (const args of [['--dir', sessions], []]) {
     const r = run(...args);

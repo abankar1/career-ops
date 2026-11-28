@@ -708,6 +708,17 @@ if (isMainModule(import.meta.url)) {
   // exit either way.
   validateFlags(args, KNOWN_FLAGS, USAGE, { valueFlags: VALUE_FLAGS, requireOperand: true });
 
+  // `--dir ""` (a shell variable that expanded to nothing) passes
+  // requireOperand, which catches only `--dir=` and a swallowed flag. Read as
+  // absent, it digested the default folder instead of the one asked for.
+  // Checked before --self-test, as requireOperand is, so `--self-test --dir ""`
+  // fails the same way `--self-test --dir=` does.
+  const dirValue = flagValue(args, '--dir');
+  if (dirValue === '') {
+    console.error('Error: --dir requires a value');
+    process.exit(1);
+  }
+
   if (args.includes('--self-test')) {
     await runSelfTest();
   }
@@ -715,14 +726,6 @@ if (isMainModule(import.meta.url)) {
   const summaryMode = args.includes('--summary');
   const from = flagValue(args, '--from');
   const to = flagValue(args, '--to');
-  const dirValue = flagValue(args, '--dir');
-  // `--dir ""` (a shell variable that expanded to nothing) passes
-  // requireOperand, which catches only `--dir=` and a swallowed flag. Read as
-  // absent, it digested the default folder instead of the one asked for.
-  if (dirValue === '') {
-    console.error('Error: --dir requires a value');
-    process.exit(1);
-  }
   const sessionsDir = dirValue ? dirValue : DEFAULT_SESSIONS_DIR;
   // An explicit --dir names the sessions to digest, so a folder that does not
   // exist is an error. Read as empty, it printed "No interviews recorded in
