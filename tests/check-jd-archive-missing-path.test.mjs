@@ -45,8 +45,10 @@ test('a --tracker that does not exist exits 2 and names it', () => {
   assert.match(r.stderr, /--tracker not found: .*aplications\.md/);
 });
 
-test('an empty --reports-dir or --tracker exits 2 instead of checking the default', () => {
-  for (const args of [['--reports-dir='], ['--reports-dir', ''], ['--tracker='], ['--tracker', '']]) {
+test('an empty or missing --reports-dir or --tracker value exits 2 instead of checking the default', () => {
+  // The bare flag as the last argument is what `--tracker $EMPTY` becomes
+  // when the shell variable is unset and unquoted.
+  for (const args of [['--reports-dir='], ['--reports-dir', ''], ['--reports-dir'], ['--tracker='], ['--tracker', ''], ['--tracker']]) {
     const r = run(...args);
     assert.equal(r.status, 2, `${args.join(' ')}\n${describeSpawn(r)}`);
     assert.match(r.stderr, /--(reports-dir|tracker) requires a path/);

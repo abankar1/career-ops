@@ -121,9 +121,13 @@ const USAGE = `Usage:
 const args = process.argv.slice(2);
 const summaryMode = args.includes('--summary');
 const selfTestMode = args.includes('--self-test');
-const reportsDirArg = flagValue(args, '--reports-dir') ?? null;
+// A path flag given with nothing after it (`--tracker` as the last argument,
+// or `--tracker $EMPTY` unquoted) reads as '', the same as `--tracker=`, so
+// the check below refuses it instead of treating the flag as absent.
+const pathFlag = (flag) => flagValue(args, flag) ?? (args.includes(flag) ? '' : null);
+const reportsDirArg = pathFlag('--reports-dir');
 const jdsDirArg = flagValue(args, '--jds-dir') ?? null;
-const trackerArg = flagValue(args, '--tracker') ?? null;
+const trackerArg = pathFlag('--tracker');
 const noTrackerMode = args.includes('--no-tracker');
 
 // --- Report filename parsing ---
@@ -1270,9 +1274,10 @@ if (isMainModule(import.meta.url)) {
   // silently dropped the tracker join. Only the defaults may be absent (a fresh
   // install has neither). Exit 2, not 1: 1 means a report has no archived JD.
   // --jds-dir is left alone: a missing capture folder already shows, as every
-  // report without an embedded JD is listed. An empty value (`--tracker=`, or a
-  // shell variable that expanded to nothing) is refused too, rather than read
-  // as the flag being absent and the default checked in its place.
+  // report without an embedded JD is listed. An empty or missing value
+  // (`--tracker=`, `--tracker ""`, or `--tracker` with nothing after it) is
+  // refused too, rather than read as the flag being absent and the default
+  // checked in its place.
   for (const [flag, value] of [['--reports-dir', reportsDirArg], ['--tracker', noTrackerMode ? null : trackerArg]]) {
     if (value === '') {
       console.error(`check-jd-archive: ${flag} requires a path`);
