@@ -25,6 +25,14 @@ async function main() {
     valueFlags: ['--dir'],
     requireOperand: true,
   });
+  // `--dir ""` (a shell variable that expanded to nothing) passes
+  // requireOperand, which refuses only `--dir=` and a swallowed flag. Read as
+  // absent, it imported from data/linkedin-alerts instead of the folder asked
+  // for, and a missing default folder exited 0.
+  if (flagValue(args, '--dir') === '') {
+    console.error('Error: --dir requires a value');
+    process.exit(1);
+  }
   const root = getCareerOpsRoot();
   const dir = flagValue(args, '--dir') || join(root, LINKEDIN_DROP_DIR);
   const dryRun = hasFlag(args, '--dry-run');
