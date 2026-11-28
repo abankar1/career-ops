@@ -430,6 +430,17 @@ async function main() {
   // asked for. `--small-threshold` keeps its own SHAPE check below (a
   // non-negative number); this only adds the presence check it lacked.
   validateFlags(args, KNOWN_FLAGS, USAGE, { valueFlags: VALUE_FLAGS, requireOperand: true });
+  // An empty value (`--file ""`, a shell variable that expanded to nothing)
+  // passes requireOperand, which refuses only `--file=` and a swallowed flag.
+  // Read as absent, it did what the trailing flag did before requireOperand:
+  // `--file ""` audited the default portals.yml, `--company ""` audited every
+  // board, and `--baseline ""` skipped the comparison, all at exit 0.
+  for (const flag of ['--file', '--company', '--baseline']) {
+    if (flagValue(args, flag) === '') {
+      console.error(`Error: ${flag} requires a value`);
+      process.exit(1);
+    }
+  }
 
   const filePath = flagValue(args, '--file') || DEFAULT_PORTALS_PATH;
   const only = flagValue(args, '--company');
