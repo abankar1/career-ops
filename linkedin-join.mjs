@@ -867,6 +867,16 @@ function main() {
   // test runner's argv. requireOperand catches `--csv --summary`, where the
   // operand is missing and the next token is another flag.
   validateFlags(args, KNOWN_FLAGS, USAGE, { valueFlags: VALUE_FLAGS, requireOperand: true });
+  // An empty value (`--csv ""`, a shell variable that expanded to nothing)
+  // passes requireOperand, which refuses only `--csv=` and a swallowed flag.
+  // Read as absent, `--csv ""` joined data/Connections.csv instead of the
+  // export asked for, and `--company ""` listed every company instead of one.
+  for (const flag of ['--csv', '--company']) {
+    if (flagValue(args, flag) === '') {
+      console.error(`Error: ${flag} requires a value`);
+      return 1;
+    }
+  }
 
   if (selfTestMode) return selfTest();
 
