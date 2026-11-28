@@ -1436,6 +1436,15 @@ function selfTest() {
 async function main() {
   const args = process.argv.slice(2);
   validateFlags(args, KNOWN_FLAGS, USAGE, { valueFlags: VALUE_FLAGS, requireOperand: true });
+  // `--register ""` (a shell variable that expanded to nothing) passes
+  // requireOperand, which refuses only `--register=` and a swallowed flag.
+  // Read as absent, it checked the default register instead of the file asked
+  // for, at exit 0.
+  if (flagValue(args, '--register') === '') {
+    console.error('Error: --register requires a value');
+    process.exitCode = 1;
+    return;
+  }
 
   if (hasFlag(args, '--self-test')) { selfTest(); return; }
 
